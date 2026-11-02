@@ -1,6 +1,6 @@
 // Local strings in the card language (ux-spec 2-7 and 5). Card lane. Never from the model.
 // App chrome (buttons, settings, states) stays English and lives in the UI lane.
-import type { CardLang, WindowSec } from "./schema";
+import type { CardLang } from "./schema";
 
 export const LOCAL_STRING_KEYS = [
   "stall", // Let me think about that for a second.
@@ -94,25 +94,29 @@ export function repeatLine(lang: CardLang): string {
   return localString(lang, "repeat");
 }
 
-/** The heads-up line from ux-spec 5 with the window seconds filled in. */
-export function headsUpLine(lang: CardLang, windowSec: WindowSec): string {
+/**
+ * The heads-up line from ux-spec 5. It names the most a press can send (2 minutes), not the window
+ * picked now, because the window chips stay live while listening and Further back steps a held clip
+ * up to 2 minutes. A line people were shown must never understate what leaves.
+ */
+export function headsUpLine(lang: CardLang): string {
   switch (lang) {
     case "ja":
       return (
         "お知らせです。聞き逃し対策のAIアクセシビリティツール Catch Up を使っています。" +
-        `私がタップしたときだけ直前${windowSec}秒の音声をAIに送って短い要約を出し、何も保存しません。` +
+        "私がタップしたときだけ直前最大2分の音声をAIに送って短い要約を出し、何も保存しません。" +
         "止めてほしければ言ってください。"
       );
     case "zh":
       return (
         "提醒一下，我在用AI无障碍辅助工具 Catch Up。" +
-        `只有在我点按时，它才会把最近${windowSec}秒的音频发给AI生成简短摘要，不保存任何内容。` +
+        "只有在我点按时，它才会把最近最多2分钟的音频发给AI生成简短摘要，不保存任何内容。" +
         "如果介意请告诉我，我会关掉。"
       );
     default:
       return (
         "Heads up, I use Catch Up, an AI accessibility tool. " +
-        `Only when I tap, it sends the last ${windowSec} seconds of audio to an AI model for a short recap. ` +
+        "Only when I tap, it sends up to the last 2 minutes of audio to an AI model for a short recap. " +
         "Catch Up saves nothing. Tell me if you'd rather I turn it off."
       );
   }

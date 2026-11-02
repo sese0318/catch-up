@@ -2,7 +2,7 @@
 // language come from src/lib/card/strings.ts instead. Every string here passes copyRuleProblems
 // (copy.test.ts checks it), so edit freely but keep the rules. No colons, semicolons, dashes as
 // separators or slashes between words.
-import type { CardLang, Source, WindowSec } from "../card/schema";
+import type { CardLang, LiveRoute, Source, WindowSec } from "../card/schema";
 import type { CaptureErrorCode, CaptureSourceKind } from "../audio/types";
 
 export const LANG_NAMES: Readonly<Record<CardLang, string>> = { en: "English", ja: "日本語", zh: "中文" };
@@ -71,7 +71,6 @@ export const UI = {
   footerAudioApp: "Audio stays in this app's memory and is sent only when you press.",
   aiCanBeWrong: "Cards are written by AI and can be wrong.",
   adultsOnly: "Catch Up is for people 18 and over.",
-  notMedical: "A hearing and language aid, not a medical device.",
   howAudioHandled: "How your audio is handled",
 
   // Header and chrome
@@ -124,8 +123,8 @@ export const UI = {
 
   // Consent row
   tellPeople: "Tell people first",
-  showAll: "Show all",
-  showLess: "Show less",
+  showHeadsUp: "Show heads-up",
+  hideHeadsUp: "Hide heads-up",
   copyForChat: "Copy for chat",
   consentLabel: "People here know I'm using Catch Up",
   headphonesNote: "Using a screen reader? Wear headphones, because app audio also picks up your reader's voice.",
@@ -141,7 +140,7 @@ export const UI = {
   phoneOnlyRoom: "Phones can only hear the room.",
   hintLabel: "Names or topics to expect",
   hintHelp: "Optional, for this session only. It fixes spellings and never adds facts. Sent only with a press.",
-  hintPlaceholder: "Prof. Gagne, PSY-201, operant conditioning",
+  hintPlaceholder: "Dr. Rivera, BIO-110, cell membranes",
 
   // Empty and landing
   trySample: "Try a sample conversation",
@@ -153,6 +152,7 @@ export const UI = {
   nowPress: "Now press Catch up.",
   sampleEnded: "The clip ended. Catch up still works for 2 minutes.",
   emptyListening: "No cards yet. When you lose the thread, press Catch up.",
+  emptyListeningAgain: "When you lose the thread, press Catch up.",
   howItWorks: "How it works",
   steps: [
     "Start listening. Catch Up keeps the last 2 minutes in memory and saves nothing.",
@@ -168,7 +168,9 @@ export const UI = {
   floatAgain: "Float again",
 
   // Health and route notices
-  livePaused: "Live cards are paused right now. Samples show saved real cards.",
+  livePaused: "Live cards are paused right now.",
+  samplesSaved: "Samples show saved real cards.",
+  tryLater: "Try again later.",
   liveNotSetUp: "Live cards aren't set up on this server yet.",
   unavailable: "Audio capture isn't ready in this build yet.",
 
@@ -276,7 +278,7 @@ export const PRIVACY = {
       title: "What leaves, and when",
       items: [
         "Only when you press, and only the slice the memory bar lights up, 30 seconds unless you pick more.",
-        "With it go the card language and, if you set them, your name forms and the session hint.",
+        "With it go the card language, the language people around you speak, the source you picked, your local time and time zone, and a random id for this tab (the main route passes it to Baseten so your presses reach the same server). Your name forms and the session hint go too, if you set them.",
         "If no one spoke in that slice, nothing is sent unless you choose Send anyway.",
         "Every card ends with a receipt that says what was sent, to which route and model, and when.",
       ],
@@ -309,7 +311,7 @@ export const PRIVACY = {
       items: [
         "Cards are written by AI and can be wrong. The line to say is AI-suggested and only restates or confirms.",
         "Catch Up is for people 18 and over.",
-        "It is a hearing and language aid, not a medical device. It never reads emotions or tells who is speaking.",
+        "Catch Up is an accessibility and language tool, not a medical device. It never reads emotions or identifies anyone by voice.",
       ],
     },
   ],
@@ -395,6 +397,25 @@ export function silentLabel(windowSec: WindowSec): string {
 
 export function warmingNotice(secondsLeft: number): string {
   return `Collecting sound. Ready in ${Math.max(1, secondsLeft)} s.`;
+}
+
+/** The button that sends the held clip to the other live route, named by where it goes. */
+export function otherRouteLabel(route: LiveRoute): string {
+  return route === "meta_api" ? "Send to Meta Model API" : "Send to Muse Spark Open";
+}
+
+/** What a refused press says in the panel, and to screen readers through the live region. */
+export function noticeText(kind: "not_listening" | "warming_up" | "nothing_held" | "unavailable", secondsLeft = 1): string {
+  switch (kind) {
+    case "not_listening":
+      return UI.notListeningPress;
+    case "warming_up":
+      return warmingNotice(secondsLeft);
+    case "nothing_held":
+      return UI.nothingHeld;
+    default:
+      return UI.unavailable;
+  }
 }
 
 export function retryAfterLabel(seconds: number): string {

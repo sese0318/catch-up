@@ -138,3 +138,11 @@ export function getSampleClip(id: string): SampleClip | null {
 export function getCachedCard(id: string, lang: CardLang): Card | null {
   return getSampleClip(id)?.cached[lang] ?? null;
 }
+
+/**
+ * True when at least one listed sample has a saved real card, so a sample can stand in while live
+ * cards are paused. Until then the UI never promises saved cards or offers Try a sample for that.
+ */
+export function hasCachedSamples(): boolean {
+  return listSampleClips().some((clip) => Object.values(clip.cached).some(Boolean));
+}

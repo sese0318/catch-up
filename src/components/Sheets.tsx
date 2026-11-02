@@ -28,6 +28,9 @@ function showDialog(dialog: HTMLDialogElement): void {
   dialog.setAttribute("open", "");
 }
 
+/** Where each open sheet sends focus when it closes, so a sheet opened from another sheet can inherit it. */
+const RETURN_TARGETS = new WeakMap<HTMLDialogElement, HTMLElement | null>();
+
 function closeDialog(dialog: HTMLDialogElement): void {
   if (typeof dialog.close === "function") {
     dialog.close();
@@ -60,8 +63,17 @@ export function Sheet({
     const dialog = ref.current;
     if (!dialog) return;
     if (open && !dialog.hasAttribute("open")) {
-      const active = dialog.ownerDocument.activeElement;
-      returnTo.current = active instanceof HTMLElement ? active : null;
+      const active = dialog.ownerDocument.activeElement as HTMLElement | null;
+      // Opened from another sheet (Settings from the phone Menu), whose button is about to go away,
+      // so return where that sheet would have returned.
+      const opener = active?.closest?.("dialog") ?? null;
+      returnTo.current =
+        opener && opener !== dialog && RETURN_TARGETS.has(opener as HTMLDialogElement)
+          ? (RETURN_TARGETS.get(opener as HTMLDialogElement) ?? null)
+          : active && active !== dialog.ownerDocument.body
+            ? active
+            : null;
+      RETURN_TARGETS.set(dialog, returnTo.current);
       showDialog(dialog);
     } else if (!open && dialog.hasAttribute("open")) {
       closeDialog(dialog);
@@ -71,13 +83,17 @@ export function Sheet({
   const handleClose = () => {
     const target = returnTo.current;
     returnTo.current = null;
-    onClose();
-    // Return focus to the opener unless something else already took it (for example the consent box).
     const dialog = ref.current;
+    if (dialog) RETURN_TARGETS.delete(dialog);
+    onClose();
+    // Return focus to the opener unless something else already took it (for example the consent box
+    // or another sheet). An opener that is gone hands focus to the big button.
     const doc = dialog?.ownerDocument;
     const active = doc?.activeElement ?? null;
     const lost = !active || active === doc?.body || (dialog?.contains(active) ?? false);
-    if (target && target.isConnected && lost) target.focus();
+    if (!lost) return;
+    if (target && target.isConnected) target.focus();
+    else doc?.querySelector<HTMLElement>(".cu-big")?.focus();
   };
 
   return (
@@ -264,6 +280,9 @@ function HotkeySettings() {
         <p className="cu-help cu-help-warn" role="status">
           {hotkeyTaken(acceleratorLabel(hotkey.accelerator ?? DESKTOP_HOTKEY_PRESETS[0]))}
         </p>
+      ) : hotkey?.error ? (
+        // Why the app started on another preset (taken, or AltGr+C types a character here).
+        <p className="cu-help">{hotkey.error}</p>
       ) : null}
     </div>
   );

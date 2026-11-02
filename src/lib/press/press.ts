@@ -33,11 +33,13 @@ import {
   type WireCard,
 } from "../protocol";
 import { getCachedCard, getSampleClip, type SampleClip } from "../samples/catalog";
+import { isPartial } from "../audio/clip";
 import { randomId } from "../audio/ids";
 import {
   isWarmingUp,
   nextWindow,
   type ClipSlice,
+  type LiveStatus,
   type PressDeps,
   type PressEvent,
   type PressKind,
@@ -85,6 +87,7 @@ interface Held {
   route: CardRoute | null;
   transcript: string | null; // Route A only, for a language redo
   silent: ClipSlice | null; // what the silence gate held back, for send_anyway
+  bypassed: boolean; // Send anyway already overrode the gate for this press, so redos skip it too
   failed: Plan | null; // for retry
   timer: Timer | null;
 }
@@ -146,6 +149,19 @@ function stallFor(lang: CardLang): { text: string; lang: CardLang } {
   return { text: FALLBACK_STALL, lang: "en" };
 }
 
+/**
+ * The code the server would refuse this route with before reading the body, from /api/health, or
+ * null. Never daily_cap, which lives in each server instance. Mock is never refused here.
+ */
+function localRefusal(route: RoutePreference, live: LiveStatus | undefined): "live_off" | "not_configured" | null {
+  if (!live || route === "mock") return null;
+  const target = route === "auto" ? live.defaultRoute : route;
+  if (target === "mock") return null;
+  if (live.liveOff) return "live_off";
+  if (target === "auto") return live.configured.length > 0 ? null : "not_configured";
+  return live.configured.includes(target) ? null : "not_configured";
+}
+
 function localTimeZone(): string | undefined {
   try {
     return Intl.DateTimeFormat().resolvedOptions().timeZone || undefined;
@@ -156,7 +172,8 @@ function localTimeZone(): string | undefined {
 
 /**
  * A sample clip asks a fictional listener by name, so its press sends the clip's names and meeting
- * language. The visitor's own names would turn that ask into a question to the room.
+ * language. The visitor's own names would turn that ask into a question to the room, and the
+ * visitor's session hint is about their own conversation, so it never goes with a sample.
  */
 function sampleSettings(settings: PressSettings, clipId: string | null): PressSettings {
   if (!clipId) return settings;
@@ -171,6 +188,7 @@ function sampleSettings(settings: PressSettings, clipId: string | null): PressSe
     ...settings,
     names: clip.listenerNames ?? settings.names,
     meetingLang: clip.meetingLang ?? settings.meetingLang,
+    hint: "",
   };
 }
 
@@ -183,6 +201,7 @@ class Pipeline implements PressPipeline {
   private current: Attempt | null = null;
   private held: Held | null = null;
   private disposed = false;
+  private freshSeq = 0; // bumps when a press asks for a new snapshot, so a cancelled press's late one is dropped
   private readonly unsubscribeEngine: () => void;
   private readonly fetchImpl: typeof fetch;
   private readonly endpoint: string;
@@ -272,7 +291,10 @@ class Pipeline implements PressPipeline {
     switch (request.kind) {
       case "further_back": {
         const next = nextWindow(held.windowSec);
-        if (!next) return { reason: "nothing_held" };
+        // The card already holds all there was. A partial card, or memory barely past what was sent,
+        // would only send the same clip again as a new live call.
+        const partial = isPartial({ sentSec: held.sentSec, windowSec: held.windowSec });
+        if (!next || partial || held.snapshot.memorySec <= held.sentSec + 0.5) return { reason: "nothing_more" };
         const plan: Plan = {
           kind: "further_back",
           windowSec: next,
@@ -280,7 +302,7 @@ class Pipeline implements PressPipeline {
           route: settings.route,
           body: "audio",
           replaces: held.cardId,
-          bypassGate: false,
+          bypassGate: held.bypassed,
         };
         return { ...base, plan };
       }
@@ -295,7 +317,7 @@ class Pipeline implements PressPipeline {
           route: transcript ? "meta_api" : settings.route,
           body: transcript ? "transcript" : "audio",
           replaces: held.cardId,
-          bypassGate: false,
+          bypassGate: held.bypassed,
         };
         return { ...base, plan };
       }
@@ -352,7 +374,14 @@ class Pipeline implements PressPipeline {
       body: null,
     };
     this.current = a;
-    this.emit({ type: "pressed", pressId, kind: p.plan.kind, pressedAt: p.pressedAt, stall: stallFor(settings.meetingLang) });
+    this.emit({
+      type: "pressed",
+      pressId,
+      kind: p.plan.kind,
+      pressedAt: p.pressedAt,
+      startedAt,
+      stall: stallFor(settings.meetingLang),
+    });
     if (!a.finished) {
       a.timers.push(setTimeout(() => this.stillWorking(a), Math.max(0, startedAt + LIMITS.stillWorkingMs - now)));
       a.timers.push(setTimeout(() => this.hardCap(a), Math.max(0, startedAt + LIMITS.hardCapMs - now)));
@@ -368,13 +397,15 @@ class Pipeline implements PressPipeline {
     let held: Held;
     if (fresh) {
       this.dropHeld();
+      const ticket = ++this.freshSeq;
       let snapshot: Snapshot;
       try {
         snapshot = await this.deps.engine.snapshot();
       } catch {
         return this.fail(a, this.captureStopped() ? "aborted" : "bad_audio");
       }
-      if (this.disposed) {
+      if (this.disposed || ticket !== this.freshSeq) {
+        // Disposed, or this press was cancelled and a newer one already asked for its own snapshot.
         snapshot.release();
         return;
       }
@@ -464,6 +495,9 @@ class Pipeline implements PressPipeline {
       return this.fail(a, "bad_request");
     }
 
+    // The server would refuse this unread, so the clip never leaves the device.
+    const refusal = localRefusal(route, settings.live);
+    if (refusal) return this.fail(a, refusal);
     if (isOffline()) return this.fail(a, "offline");
 
     const bytes = body.byteLength;
@@ -566,6 +600,7 @@ class Pipeline implements PressPipeline {
     });
     this.finish(a, false);
     if (this.held === held) {
+      if (a.plan.bypassGate) held.bypassed = true;
       held.cardId = card.meta.id;
       held.route = card.meta.route;
       held.windowSec = a.plan.windowSec;
@@ -676,6 +711,7 @@ class Pipeline implements PressPipeline {
       route: null,
       transcript: null,
       silent: null,
+      bypassed: false,
       failed: null,
       timer: null,
     };
@@ -684,7 +720,7 @@ class Pipeline implements PressPipeline {
       if (this.held === held) this.dropHeld();
     }, left);
     this.held = held;
-    this.emit({ type: "held", until });
+    this.emit({ type: "held", until, memorySec: snapshot.memorySec });
     return held;
   }
 

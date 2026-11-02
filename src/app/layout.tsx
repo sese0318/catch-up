@@ -35,16 +35,18 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-// Applies the saved text size before the first paint, so 125% and 150% never flash at 100%.
-// Mirrors applyTextSize in src/lib/client/settings.ts.
-const TEXT_SIZE_SCRIPT =
-  'try{var s=JSON.parse(localStorage.getItem("catchup.settings.v1")||"null");var t=s&&s.textSize;if(t===125||t===150)document.documentElement.dataset.textSize=String(t)}catch(e){}';
+// Runs before the first paint. Applies the saved text size, so 125% and 150% never flash at 100%
+// (mirrors applyTextSize in src/lib/client/settings.ts). Marks a phone or the Windows app, so the
+// server-rendered web layout stays hidden until the right layout renders (globals.css data-boot).
+const BOOT_SCRIPT =
+  'try{var s=JSON.parse(localStorage.getItem("catchup.settings.v1")||"null");var t=s&&s.textSize;if(t===125||t===150)document.documentElement.dataset.textSize=String(t)}catch(e){}' +
+  'try{var r=document.documentElement,b=window.catchUpDesktop;if(b&&b.isDesktop===true)r.dataset.boot="app";else if(window.matchMedia&&window.matchMedia("(max-width: 480px)").matches)r.dataset.boot="phone"}catch(e){}';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${notoJp.variable} ${notoSc.variable}`} suppressHydrationWarning>
       <body>
-        <script dangerouslySetInnerHTML={{ __html: TEXT_SIZE_SCRIPT }} />
+        <script dangerouslySetInnerHTML={{ __html: BOOT_SCRIPT }} />
         {children}
       </body>
     </html>

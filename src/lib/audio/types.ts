@@ -163,6 +163,18 @@ export interface PressSettings {
   route: RoutePreference;
   mock?: MockSpec; // dev only, from ?mock=
   tz?: string; // IANA time zone
+  live?: LiveStatus; // from /api/health, absent until it answers
+}
+
+/**
+ * What /api/health said about live calls. A press the server would refuse before reading its body
+ * (live_off, or no key for the route) fails on the device instead, so no audio is uploaded for
+ * nothing. The daily cap is never checked here, because it lives in each server instance.
+ */
+export interface LiveStatus {
+  liveOff: boolean; // LIVE_ENABLED is 0
+  defaultRoute: RoutePreference; // what the server runs for auto
+  configured: readonly LiveRoute[]; // live routes with a key
 }
 
 export type PressRequest =
@@ -174,7 +186,14 @@ export type PressRequest =
 export type PressKind = PressRequest["kind"];
 
 export type PressEvent =
-  | { type: "pressed"; pressId: string; kind: PressKind; pressedAt: number; stall: { text: string; lang: CardLang } }
+  | {
+      type: "pressed";
+      pressId: string;
+      kind: PressKind;
+      pressedAt: number; // the moment the card is about, kept by every redo of the same press
+      startedAt: number; // when this attempt started, for the elapsed counter and the cancel guard
+      stall: { text: string; lang: CardLang };
+    }
   | { type: "sending"; pressId: string; windowSec: WindowSec; sentSec: number; bytes: number; partial: boolean }
   | { type: "silent"; pressId: string; windowSec: WindowSec; sentSec: number } // nothing was sent
   | { type: "stage"; pressId: string; name: StageName; elapsedMs: number }
@@ -197,9 +216,11 @@ export type PressEvent =
       retryAfterSec?: number;
     }
   | { type: "cancelled"; pressId: string; sent: boolean } // Esc or Cancel only. The UI shows ERROR_COPY_EN.aborted
-  | { type: "held"; until: number | null }; // the press snapshot is reusable until then, null once zeroed
+  // The press snapshot is reusable until then, null once zeroed. memorySec is how much it holds.
+  | { type: "held"; until: number | null; memorySec?: number };
 
-export type PressRefusal = "busy" | "not_listening" | "warming_up" | "nothing_held";
+/** nothing_more means Further back has nothing older to send (the card already has all there was). */
+export type PressRefusal = "busy" | "not_listening" | "warming_up" | "nothing_held" | "nothing_more";
 export type PressResult = { accepted: true; pressId: string } | { accepted: false; reason: PressRefusal };
 
 export interface PressPipeline {

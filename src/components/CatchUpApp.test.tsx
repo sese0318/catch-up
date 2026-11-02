@@ -30,7 +30,13 @@ const fakes = vi.hoisted(() => {
       subs.forEach((f) => f());
       return Promise.resolve();
     }),
-    pause: vi.fn(() => Promise.resolve()),
+    pause: vi.fn(() => {
+      // Like the real engine, Pause sets the paused status before its promise settles.
+      const was = status.source;
+      status = { state: "paused", source: typeof was === "string" ? was : null, reason: "user" };
+      subs.forEach((f) => f());
+      return Promise.resolve();
+    }),
     stop: vi.fn(() => Promise.resolve()),
     memorySeconds: () => 10,
     snapshot: vi.fn(),
@@ -135,10 +141,17 @@ describe("Catch Up page", () => {
     expect(container.textContent).toContain("Tick People here know first.");
   });
 
-  it("shows the heads-up line in the meeting language with Copy for chat", () => {
+  it("folds the heads-up line behind Show heads-up, in the meeting language with Copy for chat", async () => {
+    const toggle = byText("button", "Show heads-up");
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    const block = q(".cu-heads-up-block");
+    expect(block?.hidden).toBe(true);
+    await act(async () => toggle?.click());
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(block?.hidden).toBe(false);
     const line = q(".cu-heads-up");
     expect(line?.getAttribute("lang")).toBe("en");
-    expect(line?.textContent).toContain("Only when I tap, it sends the last 30 seconds");
+    expect(line?.textContent).toContain("Only when I tap, it sends up to the last 2 minutes");
     expect(byText("button", "Copy for chat")).not.toBeNull();
   });
 
@@ -182,11 +195,13 @@ describe("Catch Up page", () => {
   });
 
   it("fills the wait with the stall line, then shows the card in panic order", async () => {
+    const at = Date.now();
     await emit({
       type: "pressed",
       pressId: "p1",
       kind: "new",
-      pressedAt: Date.now(),
+      pressedAt: at,
+      startedAt: at,
       stall: { text: "少し考えさせてください。", lang: "ja" },
     });
     const stall = q(".cu-stall-line");
@@ -244,12 +259,32 @@ describe("Catch Up page", () => {
   });
 
   it("says what happened and whether anything left on an error", async () => {
-    await emit({ type: "pressed", pressId: "p2", kind: "new", pressedAt: Date.now(), stall: { text: "x", lang: "en" } });
+    await emit({ type: "pressed", pressId: "p2", kind: "new", pressedAt: Date.now(), startedAt: Date.now(), stall: { text: "x", lang: "en" } });
     await emit({ type: "error", pressId: "p2", code: "provider_error", retryable: true, sent: true, route: "open_weights" });
     expect(container.textContent).toContain("The model service returned an error. Catch Up saved nothing.");
     expect(container.textContent).toContain("The clip left this device for this request only.");
     const retry = byText(".cu-notice button", "Retry");
     await act(async () => retry?.click());
     expect(fakes.pipeline.press).toHaveBeenLastCalledWith({ kind: "retry" });
+  });
+
+  it("leaves a finished sample for a real conversation in one click", async () => {
+    const { getController } = await import("@/lib/client/controller");
+    await act(async () => {
+      getController().playSample(fakes.clip as never);
+    });
+    const at = Date.now();
+    await emit({ type: "pressed", pressId: "p3", kind: "new", pressedAt: at, startedAt: at, stall: { text: "x", lang: "en" } });
+    await emit({ type: "card", pressId: "p3", card: makeCard({ meta: { source: "sample" } }), replaces: null, server: null });
+    expect(q("#cu-consent")).toBeNull(); // the sample still counts as listening
+    const useReal = byText("article.cu-card button", "Use it on a real conversation");
+    expect(useReal).not.toBeNull();
+
+    await act(async () => useReal?.click());
+    expect(fakes.engine.pause).toHaveBeenCalledTimes(1);
+    expect(q(".cu-status-text")?.textContent).toBe("Paused, memory cleared");
+    expect(q("#cu-consent")).not.toBeNull();
+    expect(q(".cu-big")?.textContent).toContain("Start listening");
+    expect(container.textContent).toContain("What should Catch Up hear?");
   });
 });

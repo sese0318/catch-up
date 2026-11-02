@@ -64,6 +64,13 @@ describe("scriptLangOf and langTag", () => {
     expect(scriptLangOf("")).toBe("en");
   });
 
+  it("reads Han only text as ja when the context is Japanese", () => {
+    expect(scriptLangOf("11月6日（金）15時", "ja")).toBe("ja");
+    expect(scriptLangOf("山田部長", "ja")).toBe("ja");
+    expect(scriptLangOf("你好", "zh-Hans")).toBe("zh-Hans");
+    expect(scriptLangOf("hello", "ja")).toBe("en");
+  });
+
   it("tags zh as zh-Hans and other as und", () => {
     expect(langTag("en")).toBe("en");
     expect(langTag("ja")).toBe("ja");
@@ -76,14 +83,14 @@ describe("receiptText", () => {
   it("names the window, route, model, seconds and press time on Route B", () => {
     const text = receiptText(card(enBody));
     expect(text).toBe(
-      "Sent the last 30 s of audio, your name and card language to Muse Spark Open on Baseten (meta-models/muse-spark-open-1026) at 10:42:40. Card in 2.9 s. Catch Up saved nothing.",
+      "Sent the last 30 s of audio, your name, card and meeting languages, source type, local time with time zone and a random tab id to Muse Spark Open on Baseten (meta-models/muse-spark-open-1026) at 10:42:40. Card in 2.9 s. Catch Up saved nothing.",
     );
     expectReceiptRules(text);
   });
 
   it("names the sample's listener, not the visitor, on a sample press", () => {
     const text = receiptText(card(enBody, { source: "sample" }));
-    expect(text).toContain("Sent the last 30 s of audio, the sample's listener name and card language to");
+    expect(text).toContain("Sent the last 30 s of audio, the sample's listener name, card and meeting languages, source type,");
     expect(text).not.toContain("your name");
     expectReceiptRules(text);
   });
@@ -102,7 +109,7 @@ describe("receiptText", () => {
       }),
     );
     expect(text).toBe(
-      "Sent the last 60 s of audio, your hint and card language to Muse Spark Open on Baseten and then, by the backup route, to Muse Voice Transcribe and Muse Spark on Meta Model API (muse-voice-transcribe-1.0 + muse-spark-1.3) at 10:42:40. Card in 6.1 s. Catch Up saved nothing.",
+      "Sent the last 60 s of audio, your hint, card and meeting languages, source type, local time with time zone and a random tab id to Muse Spark Open on Baseten and then, by the backup route, to Muse Voice Transcribe and Muse Spark on Meta Model API (muse-voice-transcribe-1.0 + muse-spark-1.3) at 10:42:40. Card in 6.1 s. Catch Up saved nothing.",
     );
     expectReceiptRules(text);
   });
@@ -120,14 +127,14 @@ describe("receiptText", () => {
       }),
     );
     expect(text).toBe(
-      "Sent the earlier transcript of the last 30 s, your name, your hint and card language to Muse Voice Transcribe and Muse Spark on Meta Model API (muse-spark-1.3) at 10:43:05. Card in 3.4 s. Catch Up saved nothing.",
+      "Sent the earlier transcript of the last 30 s, your name, your hint, card and meeting languages, source type and local time with time zone to Muse Voice Transcribe and Muse Spark on Meta Model API (muse-spark-1.3) at 10:43:05. Card in 3.4 s. Catch Up saved nothing.",
     );
     expectReceiptRules(text);
   });
 
   it("says when memory held less than the window", () => {
     const text = receiptText(card(enBody, { sentSec: 12.2, sent: { body: "audio", names: false, hint: false } }));
-    expect(text).toContain("Sent the last 12 s of audio (all there was for the 30 s window) and card language to");
+    expect(text).toContain("Sent the last 12 s of audio (all there was for the 30 s window), card and meeting languages,");
     expectReceiptRules(text);
   });
 
@@ -158,7 +165,7 @@ describe("receiptText", () => {
       }),
     );
     expect(fromA).toBe(
-      "The model service returned an error. Saved result from Muse Voice Transcribe and Muse Spark (muse-voice-transcribe-1.0 + muse-spark-1.3), run Nov 3, 2026, card in 6.1 s. This press at 10:42:40 sent the last 30 s of audio, your name and card language, and no live card came back. Catch Up saved nothing.",
+      "The model service returned an error. Saved result from Muse Voice Transcribe and Muse Spark (muse-voice-transcribe-1.0 + muse-spark-1.3), run Nov 3, 2026, card in 6.1 s. This press at 10:42:40 sent the last 30 s of audio, your name, card and meeting languages, source type, local time with time zone and a random tab id, and no live card came back. Catch Up saved nothing.",
     );
     expectReceiptRules(fromA);
     for (const text of [fromB, fromA]) {

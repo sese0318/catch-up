@@ -274,6 +274,9 @@ function createFakeElectron (options = {}) {
     setAppUserModelId (id) {
       state.appUserModelId = id
     },
+    getPreferredSystemLanguages () {
+      return options.languages || ['en-US']
+    },
     getPath (name) {
       if (name !== 'userData') throw new Error('unexpected path ' + name)
       if (!state.userData) {

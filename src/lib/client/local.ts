@@ -2,7 +2,7 @@
 // in its stub, a call can throw, so the UI falls back to a plain English version instead of
 // crashing. Once the card lane lands, these return exactly what the card lane returns.
 import { cardToPlainText, cardsToMarkdown, langTag, receiptText, scriptLangOf, type ScriptLang } from "../card/format";
-import type { Card, CardLang, SayLang, WindowSec } from "../card/schema";
+import type { Card, CardLang, SayLang } from "../card/schema";
 import { headsUpLine, localString, repeatLine, stallLine, type LocalStringKey } from "../card/strings";
 import { clipToWidth } from "../card/width";
 import { clockOfIso, formatSeconds } from "./format";
@@ -56,22 +56,26 @@ export function repeatText(lang: CardLang): string {
   );
 }
 
-export function headsUpText(lang: CardLang, windowSec: WindowSec): string {
+export function headsUpText(lang: CardLang): string {
   return attempt(
-    () => headsUpLine(lang, windowSec),
+    () => headsUpLine(lang),
     () =>
-      `Heads up, I use Catch Up, an AI accessibility tool. Only when I tap, it sends the last ${windowSec} seconds of audio to an AI model for a short recap. Catch Up saves nothing. Tell me if you'd rather I turn it off.`,
+      "Heads up, I use Catch Up, an AI accessibility tool. Only when I tap, it sends up to the last 2 minutes of audio to an AI model for a short recap. Catch Up saves nothing. Tell me if you'd rather I turn it off.",
   );
 }
 
 const KANA = /[぀-ヿㇰ-ㇿｦ-ﾟ]/;
 const HAN = /[㐀-䶿一-鿿豈-﫿]/;
 
-/** lang attribute for quotes, fact text and transcripts (ux-spec 6 item 4). */
-export function scriptLang(text: string): ScriptLang {
+/**
+ * lang attribute for quotes, fact text and transcripts (ux-spec 6 item 4). Han-only text reads as
+ * Japanese when hanAsJa is true (a Japanese card or say line, or Japanese spoken around you),
+ * because Japanese dates, numbers and kanji names have no kana.
+ */
+export function scriptLang(text: string, hanAsJa = false): ScriptLang {
   return attempt(
-    () => scriptLangOf(text),
-    () => (KANA.test(text) ? "ja" : HAN.test(text) ? "zh-Hans" : "en"),
+    () => scriptLangOf(text, hanAsJa ? "ja" : "zh-Hans"),
+    () => (KANA.test(text) ? "ja" : HAN.test(text) ? (hanAsJa ? "ja" : "zh-Hans") : "en"),
   );
 }
 

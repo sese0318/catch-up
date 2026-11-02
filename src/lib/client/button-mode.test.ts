@@ -34,6 +34,7 @@ describe("big button", () => {
       pressId: "p1",
       kind: "new",
       pressedAt: 1,
+      startedAt: 1,
       stall: { text: "x", lang: "en" },
       step: "sending",
       windowSec: 30,

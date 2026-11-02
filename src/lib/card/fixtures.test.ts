@@ -4,7 +4,7 @@ import { MOCK_FIXTURE_KINDS } from "../protocol";
 import { cappedFields, fieldsOverCap } from "./caps";
 import { mockCardBody } from "./fixtures";
 import { applyNumberBackstop, clampCardBody } from "./parse";
-import { CARD_LANGS, CardBody, MAX_FACTS, WINDOW_SECONDS } from "./schema";
+import { CARD_LANGS, CardBody, MAX_FACTS } from "./schema";
 import { LOCAL_STRING_KEYS, LOCAL_STRINGS, headsUpLine, localString, repeatLine, stallLine } from "./strings";
 
 describe("mock fixtures", () => {
@@ -89,21 +89,17 @@ describe("local strings", () => {
     for (const key of LOCAL_STRING_KEYS) expect(copyRuleProblems(localString("en", key)), key).toEqual([]);
   });
 
-  it("fills the window seconds into the heads-up line", () => {
-    for (const windowSec of WINDOW_SECONDS) {
-      expect(headsUpLine("en", windowSec)).toContain(`the last ${windowSec} seconds of audio`);
-      expect(headsUpLine("ja", windowSec)).toContain(`直前${windowSec}秒の音声`);
-      expect(headsUpLine("zh", windowSec)).toContain(`最近${windowSec}秒的音频`);
-      expect(copyRuleProblems(headsUpLine("en", windowSec))).toEqual([]);
-    }
-    expect(headsUpLine("en", 30)).toBe(
-      "Heads up, I use Catch Up, an AI accessibility tool. Only when I tap, it sends the last 30 seconds of audio to an AI model for a short recap. Catch Up saves nothing. Tell me if you'd rather I turn it off.",
+  it("names the most a press can send in the heads-up line, never the window picked now", () => {
+    expect(copyRuleProblems(headsUpLine("en"))).toEqual([]);
+    expect(headsUpLine("en")).toBe(
+      "Heads up, I use Catch Up, an AI accessibility tool. Only when I tap, it sends up to the last 2 minutes of audio to an AI model for a short recap. Catch Up saves nothing. Tell me if you'd rather I turn it off.",
     );
-    expect(headsUpLine("ja", 30)).toBe(
-      "お知らせです。聞き逃し対策のAIアクセシビリティツール Catch Up を使っています。私がタップしたときだけ直前30秒の音声をAIに送って短い要約を出し、何も保存しません。止めてほしければ言ってください。",
+    expect(headsUpLine("ja")).toBe(
+      "お知らせです。聞き逃し対策のAIアクセシビリティツール Catch Up を使っています。私がタップしたときだけ直前最大2分の音声をAIに送って短い要約を出し、何も保存しません。止めてほしければ言ってください。",
     );
-    expect(headsUpLine("zh", 30)).toBe(
-      "提醒一下，我在用AI无障碍辅助工具 Catch Up。只有在我点按时，它才会把最近30秒的音频发给AI生成简短摘要，不保存任何内容。如果介意请告诉我，我会关掉。",
+    expect(headsUpLine("zh")).toBe(
+      "提醒一下，我在用AI无障碍辅助工具 Catch Up。只有在我点按时，它才会把最近最多2分钟的音频发给AI生成简短摘要，不保存任何内容。如果介意请告诉我，我会关掉。",
     );
+    for (const lang of ["en", "ja", "zh"] as const) expect(headsUpLine(lang)).not.toMatch(/30|60|120/);
   });
 });

@@ -3,6 +3,7 @@
 import type { LiveRoute, WindowSec, Card, CardLang } from "../card/schema";
 import type { PressEvent, PressKind } from "../audio/types";
 import { ERROR_COPY_EN, type ErrorCode, type ProviderFailure, type StageName } from "../protocol";
+import { silentLabel } from "./copy";
 import { label } from "./local";
 
 export type BusyStep = "capturing" | "sending" | StageName;
@@ -13,7 +14,8 @@ export type RequestView =
       phase: "busy";
       pressId: string;
       kind: PressKind;
-      pressedAt: number;
+      pressedAt: number; // the moment the card is about
+      startedAt: number; // when this attempt started, for the elapsed counter and the cancel guard
       stall: { text: string; lang: CardLang };
       step: BusyStep;
       windowSec: WindowSec | null;
@@ -56,6 +58,8 @@ export interface SessionCore {
   currentId: string | null;
   /** The press snapshot can be reused for Further back and language until then. */
   heldUntil: number | null;
+  /** Seconds of sound the held snapshot holds, so Further back shows only when there is more to send. */
+  heldMemorySec: number | null;
   /** True when cards changed since the last export. Drives the leave warning. */
   unexported: boolean;
   announcement: Announcement | null;
@@ -67,13 +71,16 @@ export type SessionAction =
   | { type: "close_card" }
   | { type: "clear_history" }
   | { type: "exported" }
-  | { type: "dismiss_request" };
+  | { type: "dismiss_request" }
+  /** Something the panel shows that a screen reader should hear too, such as a capture error or a refusal. */
+  | { type: "announce"; text: string; assertive?: boolean };
 
 export const INITIAL_CORE: SessionCore = {
   request: { phase: "idle" },
   cards: [],
   currentId: null,
   heldUntil: null,
+  heldMemorySec: null,
   unexported: false,
   announcement: null,
   seq: 0,
@@ -133,6 +140,10 @@ export function sessionReducer(state: SessionCore, action: SessionAction): Sessi
       return { ...state, unexported: false };
     case "dismiss_request":
       return state.request.phase === "busy" ? state : { ...state, request: { phase: "idle" } };
+    case "announce": {
+      const seq = state.seq + 1;
+      return { ...state, seq, announcement: { seq, assertive: action.assertive ?? false, parts: [{ lang: "en", text: action.text }] } };
+    }
     case "press":
       return reducePressEvent(state, action.event);
   }
@@ -150,6 +161,7 @@ function reducePressEvent(state: SessionCore, ev: PressEvent): SessionCore {
           pressId: ev.pressId,
           kind: ev.kind,
           pressedAt: ev.pressedAt,
+          startedAt: ev.startedAt,
           stall: ev.stall,
           step: "capturing",
           windowSec: null,
@@ -175,9 +187,16 @@ function reducePressEvent(state: SessionCore, ev: PressEvent): SessionCore {
     case "still_working":
       if (state.request.phase !== "busy" || state.request.pressId !== ev.pressId) return state;
       return { ...state, request: { ...state.request, stillWorking: true } };
-    case "silent":
+    case "silent": {
       if (!samePress(state.request, ev.pressId)) return state;
-      return { ...state, request: { phase: "silent", pressId: ev.pressId, windowSec: ev.windowSec, sentSec: ev.sentSec } };
+      const seq = state.seq + 1;
+      return {
+        ...state,
+        seq,
+        announcement: { seq, assertive: false, parts: [{ lang: "en", text: silentLabel(ev.windowSec) }] },
+        request: { phase: "silent", pressId: ev.pressId, windowSec: ev.windowSec, sentSec: ev.sentSec },
+      };
+    }
     case "card": {
       const seq = state.seq + 1;
       return {
@@ -214,10 +233,16 @@ function reducePressEvent(state: SessionCore, ev: PressEvent): SessionCore {
     case "cancelled": {
       if (!samePress(state.request, ev.pressId)) return state;
       const kind = state.request.phase === "busy" ? state.request.kind : "new";
-      return { ...state, request: { phase: "cancelled", pressId: ev.pressId, kind, sent: ev.sent } };
+      const seq = state.seq + 1;
+      return {
+        ...state,
+        seq,
+        announcement: errorAnnouncement("aborted", seq),
+        request: { phase: "cancelled", pressId: ev.pressId, kind, sent: ev.sent },
+      };
     }
     case "held":
-      return { ...state, heldUntil: ev.until };
+      return { ...state, heldUntil: ev.until, heldMemorySec: ev.until === null ? null : (ev.memorySec ?? null) };
   }
 }
 
@@ -230,6 +255,15 @@ export function currentCard(core: SessionCore): Card | null {
 /** True when Further back and language redo can reuse the press snapshot. */
 export function canReuseClip(core: SessionCore, now: number): boolean {
   return core.heldUntil !== null && core.heldUntil > now;
+}
+
+/**
+ * True when Further back has something older to send for this card. A partial card already holds
+ * all there was, and so does a full one when memory holds barely more (the pipeline refuses both).
+ */
+export function hasMoreToSend(core: SessionCore, card: Card): boolean {
+  if (card.meta.sentSec < card.meta.windowSec - 0.05) return false;
+  return core.heldMemorySec === null || core.heldMemorySec > card.meta.sentSec + 0.5;
 }
 
 /** The card Further back and the language chips act on, the newest one, only while it is shown. */

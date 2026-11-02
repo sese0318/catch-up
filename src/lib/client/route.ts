@@ -60,12 +60,16 @@ export function planRoute(route: SettingsRoute, health: HealthView, mockParam: M
   return { route, mockReason: null };
 }
 
-/** The live route to offer after a failure, when both are set up. Null hides Use the other route. */
+/**
+ * The live route to offer after a failure, or null to hide that button. Only under Auto (in the
+ * settings and on the server) and only when both routes are set up. A pinned route never switches,
+ * so Open weights only never sends the held clip to the Meta Model API.
+ */
 export function otherRoute(failed: LiveRoute | undefined, plan: RoutePlan, health: HealthView): LiveRoute | null {
-  if (plan.route === "mock") return null;
+  if (plan.route !== "auto") return null;
+  if (health.state !== "ok" || health.data.defaultRoute !== "auto") return null;
   const live = liveRoutesConfigured(health);
   if (live.length < 2) return null;
   if (failed === "meta_api") return "open_weights";
-  if (failed === "open_weights") return "meta_api";
-  return plan.route === "meta_api" ? "open_weights" : "meta_api";
+  return "meta_api"; // Auto starts on open weights, so the backup is the other route
 }

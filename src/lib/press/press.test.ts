@@ -199,7 +199,7 @@ const settings: PressSettings = {
   meetingLang: "ja",
   windowSec: 30,
   names: ["  Seika ", "seika", "セイカ"],
-  hint: "  Prof. Gagne,   PSY-201 ",
+  hint: "  Dr. Rivera,   BIO-110 ",
   route: "auto",
   tz: "America/New_York",
 };
@@ -259,12 +259,14 @@ describe("press pipeline", () => {
     const result = pipeline.press({ kind: "new", pressedAt });
     expect(result.accepted).toBe(true);
     const pressId = result.accepted ? result.pressId : "";
-    expect(events).toEqual([{ type: "pressed", pressId, kind: "new", pressedAt, stall: { text: "stall-ja", lang: "ja" } }]);
+    expect(events).toEqual([
+      { type: "pressed", pressId, kind: "new", pressedAt, startedAt: pressedAt, stall: { text: "stall-ja", lang: "ja" } },
+    ]);
     expect(pipeline.isBusy()).toBe(true);
 
     await vi.advanceTimersByTimeAsync(5_000);
     expect(events.map((e) => e.type)).toEqual(["pressed", "held", "sending", "stage", "stage", "card"]);
-    expect(ofType(events, "held")[0].until).toBe(snapshots[0].takenAt + LIMITS.snapshotHoldMs);
+    expect(ofType(events, "held")[0]).toEqual({ type: "held", until: snapshots[0].takenAt + LIMITS.snapshotHoldMs, memorySec: 40 });
     expect(ofType(events, "sending")[0]).toEqual({ type: "sending", pressId, windowSec: 30, sentSec: 30, bytes: 960_044, partial: false });
     expect(ofType(events, "stage").map((e) => [e.name, e.elapsedMs])).toEqual([
       ["received", 200],
@@ -305,7 +307,7 @@ describe("press pipeline", () => {
       sentSec: 30,
       source: "mic",
       names: ["Seika", "セイカ"],
-      hint: "Prof. Gagne, PSY-201",
+      hint: "Dr. Rivera, BIO-110",
       route: "auto",
       sessionId: "sess_0123456789",
     });
@@ -454,6 +456,69 @@ describe("press pipeline", () => {
     expect(ofType(events, "card")).toHaveLength(1);
     expect(engine.snapshot).toHaveBeenCalledTimes(1);
     expect(pipeline.press({ kind: "send_anyway" })).toEqual({ accepted: false, reason: "nothing_held" });
+
+    // The override holds for this press, so a language chip sends the clip instead of saying no one spoke.
+    expect(pipeline.press({ kind: "language", cardLang: "ja" }).accepted).toBe(true);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(net.requests).toHaveLength(2);
+    expect(ofType(events, "silent")).toHaveLength(1);
+    expect(ofType(events, "card")).toHaveLength(2);
+  });
+
+  it("drops a cancelled press's late snapshot when a newer press already took its own", async () => {
+    const { pipeline, events, engine } = setup();
+    const waiting: Array<(snapshot: Snapshot) => void> = [];
+    vi.mocked(engine.snapshot).mockImplementation(() => new Promise<Snapshot>((resolve) => void waiting.push(resolve)));
+    pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(10);
+    pipeline.cancel();
+    expect(pipeline.press({ kind: "new", pressedAt: Date.now() }).accepted).toBe(true);
+    await vi.advanceTimersByTimeAsync(10);
+    expect(waiting).toHaveLength(2);
+
+    const stale = new FakeSnapshot(voice(40, 16_000), 16_000, "mic");
+    const fresh = new FakeSnapshot(voice(40, 16_000), 16_000, "mic");
+    waiting[0](stale);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stale.released).toBe(true);
+    waiting[1](fresh);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(fresh.released).toBe(false);
+    expect(ofType(events, "card")).toHaveLength(1);
+    expect(ofType(events, "held").filter((e) => e.until !== null)).toHaveLength(1);
+  });
+
+  it("fails on the device when health says the server would refuse the press unread", async () => {
+    const off = setup({ settings: { live: { liveOff: true, defaultRoute: "auto", configured: ["open_weights", "meta_api"] } } });
+    off.pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(ofType(off.events, "error")).toEqual([
+      { type: "error", pressId: expect.any(String), code: "live_off", retryable: false, sent: false },
+    ]);
+    expect(off.net.requests).toHaveLength(0);
+    expect(off.pipeline.heldUntil()).not.toBeNull(); // the clip stays for Retry
+
+    const keyless = setup({ settings: { live: { liveOff: false, defaultRoute: "auto", configured: [] } } });
+    keyless.pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(ofType(keyless.events, "error")[0]).toMatchObject({ code: "not_configured", sent: false });
+    expect(keyless.net.requests).toHaveLength(0);
+
+    const pinned = setup({ settings: { route: "meta_api", live: { liveOff: false, defaultRoute: "auto", configured: ["open_weights"] } } });
+    pinned.pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(ofType(pinned.events, "error")[0]).toMatchObject({ code: "not_configured", sent: false });
+
+    const ready = setup({ settings: { live: { liveOff: false, defaultRoute: "auto", configured: ["open_weights"] } } });
+    ready.pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(ready.net.requests).toHaveLength(1);
+    expect(ofType(ready.events, "card")).toHaveLength(1);
+
+    const mock = setup({ settings: { route: "mock", mock: { mode: "ok" }, live: { liveOff: true, defaultRoute: "auto", configured: [] } } });
+    mock.pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(mock.net.requests).toHaveLength(1); // mock ignores the kill switch, as the server does
   });
 
   it("Further back and a Route A language redo reuse the held press", async () => {
@@ -471,6 +536,7 @@ describe("press pipeline", () => {
     expect(second.card.meta.windowSec).toBe(60);
     expect(second.card.meta.pressedAt).toBe(toLocalIso(pressedAt));
     expect(ofType(events, "pressed")[1]).toMatchObject({ kind: "further_back", pressedAt });
+    expect(ofType(events, "pressed")[1].startedAt).toBeGreaterThanOrEqual(pressedAt + 5_000); // counts from the redo
     expect(metaOf(net.requests[1])).toMatchObject({ windowSec: 60, sentSec: 40, pressedAt: toLocalIso(pressedAt) });
     expect(snapshots[0].slices).toEqual([30, 60]);
     expect(engine.snapshot).toHaveBeenCalledTimes(1);
@@ -486,10 +552,40 @@ describe("press pipeline", () => {
     expect(third.card.meta.sent).toEqual({ body: "transcript", names: true, hint: true });
     expect(third.card.meta.cardLang).toBe("ja");
 
-    expect(pipeline.press({ kind: "further_back" }).accepted).toBe(true);
+    // The 60 s card already holds all 40 s there was, so Further back has nothing older to send.
+    expect(pipeline.press({ kind: "further_back" })).toEqual({ accepted: false, reason: "nothing_more" });
     await vi.advanceTimersByTimeAsync(5_000);
+    expect(snapshots[0].slices).toEqual([30, 60]);
+    expect(net.requests).toHaveLength(3);
+  });
+
+  it("steps up to 120 s while memory holds more, then stops", async () => {
+    const { pipeline, events, snapshots } = setup({ pcm: voice(125, 16_000), memorySec: 120 });
+    pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(5_000);
+    for (const windowSec of [60, 120] as const) {
+      expect(pipeline.press({ kind: "further_back" }).accepted).toBe(true);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(ofType(events, "card").at(-1)?.card.meta.windowSec).toBe(windowSec);
+    }
     expect(snapshots[0].slices).toEqual([30, 60, 120]);
-    expect(pipeline.press({ kind: "further_back" })).toEqual({ accepted: false, reason: "nothing_held" });
+    expect(pipeline.press({ kind: "further_back" })).toEqual({ accepted: false, reason: "nothing_more" });
+  });
+
+  it("never sends the same clip again as Further back when the card already holds all there was", async () => {
+    const partial = setup({ pcm: voice(12, 16_000), memorySec: 12 });
+    partial.pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(ofType(partial.events, "card")[0].card.meta.sentSec).toBe(12);
+    expect(partial.pipeline.press({ kind: "further_back" })).toEqual({ accepted: false, reason: "nothing_more" });
+    expect(partial.net.requests).toHaveLength(1);
+
+    const barely = setup({ pcm: voice(30.3, 16_000), memorySec: 30.3 });
+    barely.pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(ofType(barely.events, "card")[0].card.meta.sentSec).toBe(30);
+    expect(barely.pipeline.press({ kind: "further_back" })).toEqual({ accepted: false, reason: "nothing_more" });
+    expect(barely.net.requests).toHaveLength(1);
   });
 
   it("retries on the other route with the same clip", async () => {
@@ -562,11 +658,13 @@ describe("press pipeline", () => {
     expect(getSampleClip).toHaveBeenCalledWith("ask-by-name");
     expect(ofType(events, "pressed")[0].stall).toEqual({ text: "stall-en", lang: "en" });
     expect(metaOf(net.requests[0])).toMatchObject({ source: "sample", names: ["Sam", "サム"], meetingLang: "en" });
+    expect(metaOf(net.requests[0])).not.toHaveProperty("hint"); // the visitor's session hint stays home
+    expect(ofType(events, "card")[0].card.meta.sent.hint).toBe(false);
 
     const live = setup();
     live.pipeline.press({ kind: "new", pressedAt: Date.now() });
     await vi.advanceTimersByTimeAsync(5_000);
-    expect(metaOf(live.net.requests[0])).toMatchObject({ source: "mic", names: ["Seika", "セイカ"], meetingLang: "ja" });
+    expect(metaOf(live.net.requests[0])).toMatchObject({ source: "mic", names: ["Seika", "セイカ"], meetingLang: "ja", hint: "Dr. Rivera, BIO-110" });
   });
 
   it("lets Retry run the same press again after an Unformatted card", async () => {

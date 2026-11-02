@@ -21,11 +21,11 @@ The card language starts from your browser language (Japanese, Chinese, or Engli
 
 Anyone who loses a few seconds of a conversation and wants back in without asking the room to repeat. People whose attention drifts for a moment, people who find speech hard to follow in noise, and people listening in a second language.
 
-Catch Up is a hearing and language aid. It is not a medical device, it never reads emotions, and it never identifies speakers by voice.
+Catch Up is an accessibility and language tool, not a medical device. It never reads emotions or identifies anyone by voice.
 
 ## How it works
 
-1. **Pick a source.** People in the room through the microphone, a tab in this browser, or apps on this computer. Tick People here know I'm using Catch Up, and paste the heads-up line into the chat if that helps. The page keeps the last 2 minutes in an AudioWorklet ring buffer in memory.
+1. **Pick a source.** People in the room through the microphone, a tab in this browser, or apps on this computer. Tick People here know I'm using Catch Up. Show heads-up opens a line to say or paste into the chat, and it names the most a press can send, up to the last 2 minutes. The page keeps the last 2 minutes in an AudioWorklet ring buffer in memory.
 2. **Press.** Click Catch up, press Ctrl+Alt+C (Ctrl+Shift+Space and Ctrl+Alt+Space also work), or tap the button on a phone. The page slices the window you chose and checks that someone spoke. If no one did, nothing is sent. Otherwise one 16 kHz mono WAV goes to the server.
 3. **Read the card.** The server hands the clip to a Meta model and streams the card back. While it is written, the panel shows a short line you can say to buy a moment.
 
@@ -53,7 +53,7 @@ Both routes stream. The server parses the model's JSON, clamps each field to its
 
 ### What leaves, and when
 
-1. Only on a press, and only the slice the memory bar lights up. With it go the card language and, if you set them, the names people call you and the session hint.
+1. Only on a press, and only the slice the memory bar lights up. With it go the card language, the language people around you speak, the source type, your local time and time zone, and a random id for this tab (the main route passes it to Baseten as a session affinity header). The names people call you and the session hint go too, if you set them. A sample press sends the sample's own listener names and never your hint.
 2. Catch Up's server streams the card straight back and stores no audio, transcripts or card text. Its logs hold the time, route, model, window, byte size, stage timings and status of each press. Never audio, transcripts, card text, names, hints, IP addresses or keys.
 3. The main route calls Baseten synchronously. Baseten documents that it keeps no inputs or outputs of synchronous inference ([Baseten security](https://docs.baseten.co/observability/security)).
 4. The backup route calls the Meta Model API in Standard mode, where Meta does not use content to train its models. Meta can still retain content under its [terms of service](https://dev.meta.ai/legal/terms-of-service), so Catch Up makes no zero retention claim for that route. Pick Open weights only in Settings to keep the backup off.
@@ -68,7 +68,7 @@ Both routes stream. The server parses the model's JSON, clamps each field to its
 5. Cards are written by AI and can be wrong. The line to say is AI-suggested and only restates or confirms.
 6. Catch Up is for people 18 and over.
 
-Meta's geographic use policy restricts its model services in mainland China, Hong Kong and Macau. Catch Up is not offered or promoted there.
+Meta's [geographic use policy](https://dev.meta.ai/legal/geographic-use-policy) restricts its model services in a list of territories that includes mainland China, Hong Kong and Macau. Catch Up is not promoted there. On Vercel the server reads the caller's country from Vercel's own header, so Auto never falls back to the Meta Model API from a listed territory and a press pinned to that route is refused.
 
 ### Attribution
 
@@ -79,7 +79,7 @@ Built with Muse Spark Open, used under the [Muse Model License](https://huggingf
 1. Cards can be wrong. A fact marked unsure needs a check.
 2. Memory holds 120 s. A press sends 30, 60 or 120 s, or less when memory holds less.
 3. The server takes clips from 1 s to 125 s and request bodies up to 4,400,000 bytes, and it ends a press after 20 s.
-4. Live presses are limited to 30 per client per hour and 500 per server instance per day. Both limits live in memory and are best effort.
+4. Live presses are limited to 30 per client per hour, 2 in flight per client at once, and 500 per server instance per day. The limits are checked again right before a press counts, so parallel presses cannot overshoot them. They live in memory and are best effort, and `/api/health` reports only the kill switch, because each instance keeps its own count. On Vercel the client is the `x-real-ip` address (an IPv6 address counts by its /64). Anywhere else forwarding headers are ignored and the whole machine is one client.
 5. A tab in this browser needs Chrome or Edge on a computer. Apps on this computer needs Chrome or Edge on Windows or ChromeOS, or the Windows app. Safari, Firefox and phones get the microphone only.
 6. Capture needs a secure page, so use localhost or an https address.
 7. Catch Up has no live captions, no running transcript, no minutes, no automatic triggers and no meeting bots. It never answers on your behalf.
@@ -99,7 +99,7 @@ cp .env.example .env.local    # in PowerShell, Copy-Item .env.example .env.local
 
 Put the keys the project owner gives you into `.env.local`. `BASETEN_API_KEY` turns on the main route and `MODEL_API_KEY` turns on the backup route. Keys live only in `.env.local`, which git ignores, or in the Vercel project settings. The server reads them, they never reach the browser, they never take the `NEXT_PUBLIC_` prefix, and nothing logs them. Never commit a key.
 
-Without keys the app still runs, and a press says live cards aren't set up on this server yet.
+Without keys the app still runs, and a press says live cards aren't set up on this server yet. The page checks `/api/health` first, so a press the server would refuse unread never uploads the clip.
 
 `.env.example` lists every setting with its default. The ones you are most likely to change are these.
 
@@ -116,10 +116,12 @@ Without keys the app still runs, and a press says live cards aren't set up on th
 ## Run
 
 ```bash
-npm run dev     # http://localhost:3000
+npm run dev     # http://localhost:3000, on this computer only
 npm run build
-npm start       # serves the production build
+npm start       # serves the production build, on this computer only
 ```
+
+`npm run dev` and `npm start` listen on 127.0.0.1, so other devices on the network cannot spend your keys. localhost, the Windows app and a tunnel such as cloudflared still reach it. Record the demo against `npm run build` and `npm start` or the Vercel URL, since the dev server adds its own overlays.
 
 On Vercel, set the keys as environment variables of the project. `POST /api/card` runs on the Node runtime with a 60 s max duration, and `GET /api/health` says which routes have keys without ever returning one.
 
@@ -150,9 +152,9 @@ Raw results stay in `eval/results/raw`, which git ignores, and `eval/results/sum
 `desktop` holds a thin Electron 45 shell around the web app. It adds a global Ctrl+Alt+C that works while Zoom, Teams or a lecture has focus, a compact panel that stays on top without taking focus from your call, system audio without the share picker, and a tray icon that shows when Catch Up is listening. The panel still shows up in screen shares.
 
 ```powershell
-npm run dev      # in the repo root, serves http://localhost:3000
+npm run dev      # in the repo root, serves http://localhost:3000 on this computer only
 cd desktop
-npm install
+npm ci           # installs the exact versions in desktop/package-lock.json
 npm start
 ```
 

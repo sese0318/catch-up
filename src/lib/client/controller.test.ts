@@ -242,7 +242,7 @@ describe("session controller", () => {
     ctl.startLive("mic");
     expect(ctl.catchUp(1_234)).toBe(true);
     expect(pipeline.presses[0]).toEqual({ kind: "new", pressedAt: 1_234 });
-    pipeline.emit({ type: "pressed", pressId: "p1", kind: "new", pressedAt: 1_234, stall: { text: "x", lang: "en" } });
+    pipeline.emit({ type: "pressed", pressId: "p1", kind: "new", pressedAt: 1_234, startedAt: 1_234, stall: { text: "x", lang: "en" } });
     expect(ctl.isBusy()).toBe(true);
     const card = makeCard();
     pipeline.emit({ type: "card", pressId: "p1", card, replaces: null, server: null });
@@ -259,6 +259,11 @@ describe("session controller", () => {
     ctl.furtherBack();
     expect(ctl.getSnapshot().notice?.kind).toBe("nothing_held");
     expect(pipeline.presses.at(-1)).toEqual({ kind: "further_back" });
+    expect(ctl.getSnapshot().core.announcement?.parts[0].text).toBe("That clip was cleared after 2 minutes. Press Catch up for a new one.");
+    ctl.clearNotice();
+    pipeline.refuseNext({ accepted: false, reason: "nothing_more" });
+    ctl.furtherBack();
+    expect(ctl.getSnapshot().notice).toBeNull(); // nothing older to send, and never the cleared notice
     ctl.redoLanguage("ja");
     expect(pipeline.presses.at(-1)).toEqual({ kind: "language", cardLang: "ja" });
     ctl.retry("meta_api");
@@ -277,7 +282,7 @@ describe("session controller", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "c", code: "KeyC" }));
     expect(pipeline.presses).toHaveLength(1); // no single-letter shortcut
 
-    pipeline.emit({ type: "pressed", pressId: "p1", kind: "new", pressedAt: 1, stall: { text: "x", lang: "en" } });
+    pipeline.emit({ type: "pressed", pressId: "p1", kind: "new", pressedAt: 1, startedAt: 1, stall: { text: "x", lang: "en" } });
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", cancelable: true }));
     expect(pipeline.cancel).toHaveBeenCalledTimes(1);
 
@@ -285,6 +290,31 @@ describe("session controller", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", cancelable: true }));
     expect(ctl.getSnapshot().core.currentId).toBeNull(); // Esc moves the card into history
     expect(ctl.getSnapshot().core.cards).toHaveLength(1);
+  });
+
+  it("never blocks Quit or Reload in the Windows app with the leave warning", async () => {
+    const bridge = fakeBridge();
+    current = setup({ bridge });
+    const { pipeline } = current;
+    await flush();
+    pipeline.emit({ type: "card", pressId: "p1", card: makeCard(), replaces: null, server: null });
+    const leave = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(false);
+  });
+
+  it("announces capture problems through the live region", () => {
+    current = setup();
+    const { ctl, engine } = current;
+    ctl.setConsent(true);
+    ctl.startLive("tab");
+    engine.setStatus({ state: "error", source: "tab", code: "no_audio_in_share" });
+    expect(ctl.getSnapshot().core.announcement).toMatchObject({
+      assertive: true,
+      parts: [{ lang: "en", text: expect.stringContaining("The share came back without sound.") }],
+    });
+    engine.setStatus({ state: "paused", source: "tab", reason: "source_lost" });
+    expect(ctl.getSnapshot().core.announcement?.parts[0].text).toBe("Stopped hearing the meeting tab.");
   });
 
   it("warns before leaving with unexported cards", () => {
@@ -404,15 +434,16 @@ describe("session controller", () => {
     await flush();
     settings.update({ cardLang: "ja", meetingLang: "en", windowSec: 60, route: "open_weights" });
     settings.setName(0, "Seika");
-    ctl.setHint("PSY-201");
+    ctl.setHint("BIO-110");
     const out = ctl.pressSettings();
     expect(out).toMatchObject({
       cardLang: "ja",
       meetingLang: "en",
       windowSec: 60,
       route: "open_weights",
-      hint: "PSY-201",
+      hint: "BIO-110",
       names: ["Seika", "", ""],
+      live: { liveOff: false, defaultRoute: "auto", configured: ["open_weights", "meta_api"] },
     });
     expect(out.mock).toBeUndefined();
   });

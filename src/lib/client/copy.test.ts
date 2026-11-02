@@ -19,6 +19,8 @@ import {
   memoryLabel,
   nameFormLabel,
   nextCardIn,
+  noticeText,
+  otherRouteLabel,
   partialLabel,
   playingLabel,
   quietHint,
@@ -73,6 +75,12 @@ function dynamicCopy(): string[] {
     switchToLabel("Apps on this computer"),
     sourceChipName("Tab audio"),
     timingLine({ total: 2900, firstToken: 2100, upload: 400 }),
+    otherRouteLabel("meta_api"),
+    otherRouteLabel("open_weights"),
+    noticeText("not_listening"),
+    noticeText("warming_up", 3),
+    noticeText("nothing_held"),
+    noticeText("unavailable"),
   );
   return out;
 }
@@ -124,6 +132,22 @@ describe("English chrome copy", () => {
       ].sort(),
     );
     expect(Object.keys(ASK_CHIPS).sort()).toEqual(["mentioned", "none", "room", "you"]);
+  });
+
+  it("names where the other route sends the clip", () => {
+    expect(otherRouteLabel("meta_api")).toBe("Send to Meta Model API");
+    expect(otherRouteLabel("open_weights")).toBe("Send to Muse Spark Open");
+  });
+
+  it("lists every press detail that leaves, and calls Catch Up an accessibility and language tool", () => {
+    const leaves = PRIVACY.sections.find((s) => s.title === "What leaves, and when")?.items.join(" ") ?? "";
+    for (const part of ["card language", "language people around you speak", "source you picked", "local time and time zone", "random id for this tab"]) {
+      expect(leaves).toContain(part);
+    }
+    const limits = PRIVACY.sections.find((s) => s.title === "Limits")?.items.join(" ") ?? "";
+    expect(limits).toContain("Catch Up is an accessibility and language tool, not a medical device.");
+    expect(limits).toContain("It never reads emotions or identifies anyone by voice.");
+    expect(UI.hintPlaceholder).not.toMatch(/Gagne|PSY/);
   });
 
   it("keeps the press button name stable and spoken in full", () => {

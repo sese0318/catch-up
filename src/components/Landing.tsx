@@ -2,7 +2,7 @@
 // strip and no permission prompts. While listening it says how to press, and while a sample plays
 // it shows the muffle caption and when to press.
 import type { SampleClip } from "@/lib/samples/catalog";
-import { listSampleClips } from "@/lib/samples/catalog";
+import { hasCachedSamples, listSampleClips } from "@/lib/samples/catalog";
 import { LANG_SHORT, UI, playingLabel } from "@/lib/client/copy";
 import type { SampleView } from "@/lib/client/controller";
 import { useController, useLevel, useSession, useSettings, useSettingsStore } from "@/lib/client/hooks";
@@ -113,11 +113,26 @@ function HowItWorks() {
   );
 }
 
+function savedSamplesHere(): boolean {
+  try {
+    return hasCachedSamples();
+  } catch {
+    return false;
+  }
+}
+
 function LandingNotices() {
   const session = useSession();
   const health = session.health;
   if (health.state !== "ok" || session.mockParam || health.data.mock) return null;
-  if (!health.data.live) return <Notice tone="info">{UI.livePaused}</Notice>;
+  if (!health.data.live) {
+    // Promise saved sample cards only when one exists.
+    return (
+      <Notice tone="info">
+        {UI.livePaused} {savedSamplesHere() ? UI.samplesSaved : UI.tryLater}
+      </Notice>
+    );
+  }
   if (!health.data.routes.open_weights.configured && !health.data.routes.meta_api.configured) {
     return <Notice tone="info">{UI.liveNotSetUp}</Notice>;
   }
@@ -142,7 +157,7 @@ export function EmptyState({ surface }: { surface: PanelSurface }) {
   if (listening) {
     return (
       <div className="cu-empty" lang="en">
-        <p className="cu-empty-title">{UI.emptyListening}</p>
+        <p className="cu-empty-title">{session.core.cards.length > 0 ? UI.emptyListeningAgain : UI.emptyListening}</p>
         {!level.soundOk ? <p className="cu-muted">{UI.levelCheck}</p> : null}
         {session.support.phone && !hintsSeen.phone ? (
           <Notice

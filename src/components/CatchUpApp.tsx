@@ -2,7 +2,7 @@
 // The app shell. Picks the layout for the surface (main page, phone, Windows app compact panel or
 // Full view), owns which sheet is open, and runs the Start listening flow (setup once per device,
 // then the per-session People here know tick, then capture started inside the click).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { UI } from "@/lib/client/copy";
 import { useController, useIsPhone, useSession, useSettings, useSettingsStore } from "@/lib/client/hooks";
@@ -16,10 +16,21 @@ import { CONSENT_ID, SAMPLES_ID, SOURCE_STEP_ID, UiContext, type SheetName, type
 
 type Layout = "web" | "phone" | "app-compact" | "app-full";
 
+function prefersReducedMotion(doc: Document): boolean {
+  try {
+    return doc.defaultView?.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  } catch {
+    return false;
+  }
+}
+
 function focusById(id: string, doc: Document | null | undefined, scroll = true): boolean {
   const el = doc?.getElementById(id);
-  if (!el) return false;
-  if (scroll && typeof el.scrollIntoView === "function") el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  if (!el || !doc) return false;
+  if (scroll && typeof el.scrollIntoView === "function") {
+    // An explicit smooth option would override the reduced motion rule in globals.css.
+    el.scrollIntoView({ block: "nearest", behavior: prefersReducedMotion(doc) ? "auto" : "smooth" });
+  }
   el.focus({ preventScroll: true });
   return true;
 }
@@ -56,6 +67,21 @@ export default function CatchUpApp() {
       : "web";
   const capture = session.capture;
   const live = (capture.state === "listening" || capture.state === "starting") && capture.source !== "sample";
+
+  // The boot script hid the server-rendered web layout on a phone or in the Windows app. Show the
+  // page once the right layout is in, or after 3 s whatever happens.
+  useEffect(() => {
+    const root = document.documentElement;
+    const boot = root.dataset.boot;
+    if (!boot) return;
+    const ready = boot === "phone" ? layout === "phone" : layout === "app-compact" || layout === "app-full";
+    if (ready) {
+      delete root.dataset.boot;
+      return;
+    }
+    const timer = window.setTimeout(() => delete root.dataset.boot, 3_000);
+    return () => window.clearTimeout(timer);
+  }, [layout]);
   const pipWindow = session.pip.window;
 
   // The document that holds the Panel right now, the floating window or this tab.
@@ -70,6 +96,14 @@ export default function CatchUpApp() {
     if (ctl.startLive(chosen)) setSourceOpen(false);
   };
 
+  // The compact Windows panel never takes focus, so setup (with its name fields) opens in Full view.
+  // The sheets sit outside the layout, so the dialog stays open across the switch.
+  const openSetup = (starting: boolean) => {
+    if (layout === "app-compact") ctl.setDesktopView("full");
+    setPendingStart(starting);
+    setSheet("setup");
+  };
+
   const ui: UiActions = {
     samplesRevealed,
     source,
@@ -79,8 +113,7 @@ export default function CatchUpApp() {
     startListening: (chosen) => {
       const pick = chosen && sources.includes(chosen) ? chosen : source;
       if (!setupDone && !pipWindow) {
-        setPendingStart(true);
-        setSheet("setup");
+        openSetup(true);
         return;
       }
       if (!session.consent) {
@@ -91,9 +124,11 @@ export default function CatchUpApp() {
     },
     useReal: () => {
       setSamplesRevealed(false);
+      // A finished sample stays listening for 2 minutes, which hides the tick and Start listening.
+      // Pause sets the paused status at once, so the next paint shows them.
+      if (capture.state !== "idle" && capture.state !== "paused" && capture.source === "sample") ctl.pause();
       if (!setupDone) {
-        setPendingStart(false);
-        setSheet("setup");
+        openSetup(false);
         return;
       }
       // Phones only hear the room, so the next step is the tick and Start listening.

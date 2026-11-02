@@ -99,6 +99,26 @@ describe("card variants", () => {
     expect(el.querySelector(".cu-say-gloss")).toBeNull();
   });
 
+  it("tags Han-only dates and kanji names on a Japanese card as ja, never Mandarin", async () => {
+    const el = await show(
+      makeCard({
+        ask: { to: "you", text: "金曜の15時は大丈夫ですか？", by: "山田部長" },
+        say: { text: "確認ですが、金曜の15時ですね？", lang: "ja" },
+        summary: ["山田部長から金曜15時の予定を聞かれました。"],
+        facts: [
+          { kind: "date", text: "11月6日（金）15時" },
+          { kind: "name", text: "山田部長" },
+          { kind: "number", text: "15%" },
+        ],
+        quote: "山田部長",
+        meta: { cardLang: "ja" },
+      }),
+    );
+    const facts = [...el.querySelectorAll(".cu-fact-text")].map((f) => f.getAttribute("lang"));
+    expect(facts).toEqual(["ja", "ja", "ja"]);
+    expect(el.querySelector(".cu-ask-by span")?.getAttribute("lang")).toBe("ja");
+  });
+
   it("opens What they said with the quote and the Route A transcript", async () => {
     const el = await show(
       makeCard({ meta: { route: "meta_api", model: "muse-voice-transcribe-1.0 + muse-spark-1.3", transcript: "So Seika, does Thursday work?" } }),

@@ -6,6 +6,7 @@ import {
   announcementFor,
   canReuseClip,
   currentCard,
+  hasMoreToSend,
   isLatestCard,
   sessionReducer,
   type SessionCore,
@@ -20,6 +21,7 @@ const pressed = (pressId: string, kind: "new" | "further_back" | "language" | "r
   pressId,
   kind,
   pressedAt: 1_000,
+  startedAt: 1_000,
   stall: { text: "Let me think about that for a second.", lang: "en" },
 });
 
@@ -74,6 +76,31 @@ describe("session reducer", () => {
 
     s = run([pressed("p3"), { type: "cancelled", pressId: "p3", sent: false }], s);
     expect(s.request).toMatchObject({ phase: "cancelled", sent: false });
+    expect(s.announcement?.parts[0].text).toBe(ERROR_COPY_EN.aborted);
+  });
+
+  it("tells screen readers when no one spoke, and anything the controller announces", () => {
+    let s = run([pressed("p1"), { type: "silent", pressId: "p1", windowSec: 60, sentSec: 60 }]);
+    expect(s.announcement).toEqual({ seq: s.seq, assertive: false, parts: [{ lang: "en", text: "No one spoke in the last 1 min. Nothing was sent." }] });
+    s = sessionReducer(s, { type: "announce", text: "Stopped hearing the microphone.", assertive: true });
+    expect(s.announcement).toMatchObject({ assertive: true, parts: [{ lang: "en", text: "Stopped hearing the microphone." }] });
+  });
+
+  it("counts the elapsed time of a redo from its own start", () => {
+    const s = run([{ ...pressed("p1", "further_back"), pressedAt: 1_000, startedAt: 9_000 } as PressEvent]);
+    expect(s.request).toMatchObject({ phase: "busy", pressedAt: 1_000, startedAt: 9_000 });
+  });
+
+  it("offers Further back only while there is something older to send", () => {
+    const full = makeCard({ meta: { windowSec: 30, sentSec: 30 } });
+    const partial = makeCard({ meta: { windowSec: 30, sentSec: 12 } });
+    let s = run([{ type: "held", until: 5_000, memorySec: 40 }]);
+    expect(hasMoreToSend(s, full)).toBe(true);
+    expect(hasMoreToSend(s, partial)).toBe(false);
+    s = run([{ type: "held", until: 5_000, memorySec: 30.3 }]);
+    expect(hasMoreToSend(s, full)).toBe(false);
+    s = run([{ type: "held", until: null }], s);
+    expect(s.heldMemorySec).toBeNull();
   });
 
   it("closes the card into history, clears, and tracks exports", () => {

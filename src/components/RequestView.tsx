@@ -1,17 +1,30 @@
 // What fills the wait and what a failed press says (ux-spec 3 After a press, 7 Request).
 // The stall line shows at 0 ms in the meeting language, then honest stages with an elapsed
 // counter (hidden from screen readers), skeleton blocks in card order, and Still working at 6 s.
-import { ERROR_ACTION_LABELS_EN, ERROR_COPY_EN, ERROR_INFO, STAGE_COPY_EN } from "@/lib/protocol";
-import { UI, partialLabel, retryAfterLabel, sendingLabel, silentLabel } from "@/lib/client/copy";
+// Screen readers hear these states through the Panel's live region, never through new nodes here.
+import { ERROR_ACTION_LABELS_EN, ERROR_COPY_EN, ERROR_INFO, STAGE_COPY_EN, type ErrorCode } from "@/lib/protocol";
+import { UI, otherRouteLabel, partialLabel, retryAfterLabel, sendingLabel, silentLabel } from "@/lib/client/copy";
 import { useController, useNow, useSession, useSettings } from "@/lib/client/hooks";
 import { label, tagOf } from "@/lib/client/local";
 import { otherRoute, planRoute } from "@/lib/client/route";
 import type { RequestView as RequestState } from "@/lib/client/session-state";
+import { hasCachedSamples } from "@/lib/samples/catalog";
 import { ArrowClockwiseIcon, CircleNotchIcon, InfoIcon, WarningIcon } from "./icons";
 import { Notice } from "./ui";
 import { useUi } from "./ui-context";
 
 type Busy = Extract<RequestState, { phase: "busy" }>;
+
+/** Codes that mean live cards are paused, where a saved sample card can stand in. */
+const PAUSED_CODES: ReadonlySet<ErrorCode> = new Set(["rate_limited", "daily_cap", "live_off"]);
+
+function savedSamplesHere(): boolean {
+  try {
+    return hasCachedSamples();
+  } catch {
+    return false;
+  }
+}
 
 function stepText(request: Busy): string {
   switch (request.step) {
@@ -27,7 +40,8 @@ function stepText(request: Busy): string {
 function PressProgress({ request }: { request: Busy }) {
   const { settings } = useSettings();
   const now = useNow(true, true);
-  const elapsed = now > 0 ? Math.max(0, Math.floor((now - request.pressedAt) / 1000)) : 0;
+  // Counted from when this attempt started. A redo keeps the first press time only for its card.
+  const elapsed = now > 0 ? Math.max(0, Math.floor((now - request.startedAt) / 1000)) : 0;
   const cardLang = settings.cardLang;
   const redo = request.kind === "further_back" || request.kind === "language";
   return (
@@ -80,14 +94,20 @@ function ErrorView({ request }: { request: Extract<RequestState, { phase: "error
   const { settings } = useSettings();
   const ui = useUi();
   const info = ERROR_INFO[request.code];
-  const labels = ERROR_ACTION_LABELS_EN[info.action];
   const plan = planRoute(settings.route, session.health, session.mockParam);
   const other = otherRoute(request.route, plan, session.health);
   const copy = ERROR_COPY_EN[request.code];
   const sentLine = /\bsent\b/i.test(copy) ? null : request.sent ? UI.clipLeftOnce : UI.nothingLeft;
+  // Try a sample helps only when a sample has a saved real card to stand in. Otherwise say when to come back.
+  const samplesHelp = info.action !== "try_sample" || savedSamplesHere();
+  const action = samplesHelp ? info.action : "none";
+  const paused = PAUSED_CODES.has(request.code);
+  const labels = ERROR_ACTION_LABELS_EN[action].map((text, index) =>
+    action === "retry_or_other_route" && index === 1 && other ? otherRouteLabel(other) : text,
+  );
 
   const onAction = (index: number) => {
-    switch (info.action) {
+    switch (action) {
       case "retry":
         ctl.retry();
         break;
@@ -118,7 +138,7 @@ function ErrorView({ request }: { request: Extract<RequestState, { phase: "error
         labels.length > 0 ? (
           <>
             {labels.map((text, index) =>
-              info.action === "retry_or_other_route" && index === 1 && !other ? null : (
+              action === "retry_or_other_route" && index === 1 && !other ? null : (
                 <button
                   key={text}
                   type="button"
@@ -135,8 +155,13 @@ function ErrorView({ request }: { request: Extract<RequestState, { phase: "error
       }
     >
       <p>{copy}</p>
+      {paused && samplesHelp ? <p className="cu-notice-sub">{UI.samplesSaved}</p> : null}
       {sentLine ? <p className="cu-notice-sub">{sentLine}</p> : null}
-      {request.retryAfterSec ? <p className="cu-notice-sub">{retryAfterLabel(request.retryAfterSec)}</p> : null}
+      {request.retryAfterSec ? (
+        <p className="cu-notice-sub">{retryAfterLabel(request.retryAfterSec)}</p>
+      ) : paused && !samplesHelp ? (
+        <p className="cu-notice-sub">{UI.tryLater}</p>
+      ) : null}
     </Notice>
   );
 }
@@ -174,6 +199,7 @@ export function RequestView({ request }: { request: RequestState }) {
       return (
         <Notice tone="info" icon={<InfoIcon aria-hidden="true" />}>
           <p>{ERROR_COPY_EN.aborted}</p>
+          <p className="cu-notice-sub">{request.sent ? UI.clipLeftOnce : UI.nothingLeft}</p>
         </Notice>
       );
   }

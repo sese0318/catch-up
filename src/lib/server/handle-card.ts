@@ -27,7 +27,6 @@ import {
 import { createProviders, isMockProvider, planRoutes } from "../providers";
 import {
   AUTO_POLICY,
-  LOCAL_CLIENT_KEY,
   PROVIDER_IDS,
   ProviderError,
   isProviderError,
@@ -43,6 +42,7 @@ import { readBodyCapped } from "./body";
 import { readServerEnv } from "./env";
 import { pressGuards } from "./guards";
 import { logPress } from "./log";
+import { clientKeyOf, metaApiBlockedHere } from "./where";
 
 // Why a press stopped early. The handler knows the reason, so providers only report aborted.
 const CLIENT_GONE = Symbol("client_gone");
@@ -51,6 +51,9 @@ const NO_TOKEN = Symbol("no_token");
 
 /** The one JSON retry of a lone Route B runs only with this much time left before the deadline. */
 const RETRY_MIN_LEFT_MS = 8_000;
+
+/** Retry-After for a client that already has its in-flight presses running. One press lasts at most this long. */
+const IN_FLIGHT_RETRY_SEC = Math.ceil(LIMITS.hardCapMs / 1000);
 
 /** A provider failure, or a bug in a provider (internal), which Auto also answers with the backup route. */
 type Failure = ProviderFailure | "internal";
@@ -70,6 +73,8 @@ interface PressJob {
   now: () => number;
   log: Logger;
   requestSignal: AbortSignal;
+  /** Frees the client's in-flight slot once the stream ends. */
+  release: () => void;
 }
 
 type Attempt =
@@ -96,19 +101,6 @@ function safeLogger(log: Logger): Logger {
       // logging never breaks a press
     }
   };
-}
-
-/** The rate limit key. deps.clientKey, else the first x-forwarded-for address, else LOCAL_CLIENT_KEY. */
-function clientKeyOf(req: Request, custom: CardHandlerDeps["clientKey"]): string {
-  if (custom) {
-    try {
-      const key = custom(req);
-      if (key) return key;
-    } catch {
-      // fall through to the header
-    }
-  }
-  return req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || LOCAL_CLIENT_KEY;
 }
 
 function decodeTranscript(bytes: Uint8Array): string | null {
@@ -407,6 +399,7 @@ function pressStream(job: PressJob): ReadableStream<Uint8Array> {
         .finally(() => {
           job.requestSignal.removeEventListener("abort", leave);
           job.wav?.fill(0); // the clip lived only for this request
+          job.release();
           if (closed) return;
           closed = true;
           try {
@@ -424,11 +417,12 @@ function pressStream(job: PressJob): ReadableStream<Uint8Array> {
 }
 
 /**
- * POST /api/card. Decodes X-CatchUp-Meta, plans routes, applies the per-client hourly limit and the
- * daily cap (live presses only, mock presses never count), checks the body (checkClipWav or a
- * transcript), then streams stage, card or error, and done. A press counts toward the guards only
- * once its body passes and a live provider is about to run. Errors found before streaming use
- * errorEventResponse. Logs one PressLogEntry per press.
+ * POST /api/card. Decodes X-CatchUp-Meta, plans routes, applies the per-client hourly limit, the
+ * daily cap and the per-client in-flight cap (live presses only, mock presses never count), checks
+ * the body (checkClipWav or a transcript), then streams stage, card or error, and done. A press
+ * counts toward the guards only once its body passes, and the limits are checked again in that same
+ * step, so parallel uploads cannot overshoot. Errors found before streaming use errorEventResponse.
+ * Logs one PressLogEntry per press.
  */
 export async function handleCardRequest(req: Request, deps?: CardHandlerDeps): Promise<Response> {
   const now = deps?.now ?? Date.now;
@@ -437,8 +431,16 @@ export async function handleCardRequest(req: Request, deps?: CardHandlerDeps): P
   let meta: PressMeta | null = null;
   let route: ProviderId | null = null;
   let bytes = 0;
+  // The client's in-flight slot. Every refusal frees it, and a stream takes it over.
+  const slot: { release: (() => void) | null } = { release: null };
+  const freeSlot = () => {
+    const release = slot.release;
+    slot.release = null;
+    release?.();
+  };
 
   const refuse = (code: ErrorCode, extra: Pick<ErrorData, "retryAfterSec"> = {}): Response => {
+    freeSlot();
     log({
       at: new Date(now()).toISOString(),
       status: "error",
@@ -462,7 +464,12 @@ export async function handleCardRequest(req: Request, deps?: CardHandlerDeps): P
 
     // Guards run before the body is read. Mock presses skip them and never count.
     const providers = providersFor(env, deps?.providers);
-    const plan = planRoutes(meta.route, env, providers);
+    let plan = planRoutes(meta.route, env, providers);
+    if (plan.ok && metaApiBlockedHere(req)) {
+      // Meta's geographic use policy. Auto keeps only Route B there, and a pinned Route A is refused.
+      const routes = plan.routes.filter((id) => id !== "meta_api");
+      plan = routes.length > 0 ? { ...plan, routes } : { ok: false, code: "not_configured" };
+    }
     if (!plan.ok) return refuse(plan.code);
     route = plan.routes[0];
     const live = route !== "mock";
@@ -471,6 +478,11 @@ export async function handleCardRequest(req: Request, deps?: CardHandlerDeps): P
       const hourly = pressGuards.checkHourly(clientKey, arrivedAt, env.ratePerHour);
       if (!hourly.ok) return refuse("rate_limited", { retryAfterSec: hourly.retryAfterSec });
       if (pressGuards.dailyCapReached(arrivedAt, env.dailyCap)) return refuse("daily_cap");
+      if (env.ratePerHour > 0) {
+        // perHour 0 turns every per-client limit off, the in-flight cap too (the eval runs that way).
+        slot.release = pressGuards.enter(clientKey);
+        if (!slot.release) return refuse("rate_limited", { retryAfterSec: IN_FLIGHT_RETRY_SEC });
+      }
     }
 
     const kind = bodyKindOf(req.headers.get("content-type"));
@@ -494,7 +506,15 @@ export async function handleCardRequest(req: Request, deps?: CardHandlerDeps): P
       if (transcript === null) return refuse("bad_request");
     }
 
-    if (live) pressGuards.count(clientKey, arrivedAt, env.ratePerHour);
+    if (live) {
+      // Checked and counted with no await in between, so presses that uploaded together never overshoot.
+      const admitted = pressGuards.admit(clientKey, now(), env.ratePerHour, env.dailyCap);
+      if (!admitted.ok) {
+        wav?.fill(0);
+        return refuse(admitted.code, admitted.code === "rate_limited" ? { retryAfterSec: admitted.retryAfterSec } : {});
+      }
+    }
+    const release = slot.release ?? (() => undefined);
     const stream = pressStream({
       meta,
       env,
@@ -508,7 +528,9 @@ export async function handleCardRequest(req: Request, deps?: CardHandlerDeps): P
       now,
       log,
       requestSignal: req.signal,
+      release,
     });
+    slot.release = null; // the stream owns the slot now and frees it when it ends
     return new Response(stream, { status: 200, headers: { ...SSE_HEADERS } });
   } catch {
     return refuse("server_error");
@@ -520,11 +542,14 @@ const HEALTH_PROVIDER_NAMES: Readonly<Record<LiveRoute, string>> = {
   meta_api: "Meta Model API",
 };
 
-/** GET /api/health as a HealthResponse. Never includes keys. */
+/**
+ * GET /api/health as a HealthResponse. Never includes keys. It reports the kill switch only. The
+ * daily cap lives in each instance's memory, and on Vercel /api/card runs in another function, so
+ * a capped press says daily_cap in its own error instead.
+ */
 export function handleHealthRequest(deps?: HealthHandlerDeps): Response {
   const env = deps?.env ?? readServerEnv();
   const providers = providersFor(env, deps?.providers);
-  const capped = pressGuards.dailyCapReached(Date.now(), env.dailyCap);
   const routeInfo = (id: LiveRoute) => ({
     configured: providers[id].isConfigured(),
     model: providers[id].modelLabel(),
@@ -533,8 +558,8 @@ export function handleHealthRequest(deps?: HealthHandlerDeps): Response {
   const body: HealthResponse = {
     ok: true,
     v: PROTOCOL_VERSION,
-    live: env.liveEnabled && !capped,
-    paused: !env.liveEnabled ? "live_off" : capped ? "daily_cap" : null,
+    live: env.liveEnabled,
+    paused: env.liveEnabled ? null : "live_off",
     defaultRoute: env.routePolicy,
     mock: env.allowMock,
     routes: { open_weights: routeInfo("open_weights"), meta_api: routeInfo("meta_api") },

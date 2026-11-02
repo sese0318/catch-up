@@ -638,13 +638,39 @@ test('closing hides to the tray, and Quit really quits', async (t) => {
   menuItem(tray, 'Quit Catch Up').click()
   assert.equal(fake.state.quitCalls, 1)
   fake.emitApp('before-quit')
-  assert.deepEqual(settingsOf(fake), { version: 1, hotkey: 'Control+Alt+C', panel: { x: 1544, y: 544 } })
+  assert.deepEqual(settingsOf(fake), { version: 1, hotkey: 'Control+Alt+C', hotkeyPicked: false, panel: { x: 1544, y: 544 } })
   prevented = false
   win.emit('close', { preventDefault: () => { prevented = true } })
   assert.equal(prevented, false)
   fake.emitApp('will-quit')
   assert.equal(fake.state.registered.size, 0)
   assert.equal(tray.destroyed, true)
+})
+
+test('Quit wins over the page asking to stay, and other unloads are left to the page', async (t) => {
+  const { win, tray } = await boot(t)
+  let allowed = false
+  win.webContents.emit('will-prevent-unload', { preventDefault: () => { allowed = true } })
+  assert.equal(allowed, false)
+  menuItem(tray, 'Quit Catch Up').click()
+  win.webContents.emit('will-prevent-unload', { preventDefault: () => { allowed = true } })
+  assert.equal(allowed, true)
+})
+
+test('starts on Ctrl+Shift+Space where AltGr+C types a character, and says why', async (t) => {
+  const { fake, tray } = await boot(t, { languages: ['pl-PL', 'en-US'] })
+  assert.deepEqual([...fake.state.registered.keys()], ['Control+Shift+Space'])
+  const [state] = fake.sentOn(DESKTOP_IPC.hotkeyChanged)
+  assert.equal(state.accelerator, 'Control+Shift+Space')
+  assert.match(state.error, /instead of Ctrl\+Alt\+C, because AltGr\+C types a character/)
+  assert.equal(hotkeyMenu(tray).label, 'Hotkey Ctrl+Shift+Space')
+})
+
+test('a hotkey the person picked is kept on an AltGr keyboard', async (t) => {
+  const userData = tempUserData(t, { version: 1, hotkey: 'Control+Alt+C', hotkeyPicked: true, panel: null })
+  const { fake } = await boot(t, { userData, languages: ['hu-HU'] })
+  assert.deepEqual([...fake.state.registered.keys()], ['Control+Alt+C'])
+  assert.equal(fake.sentOn(DESKTOP_IPC.hotkeyChanged)[0].error, null)
 })
 
 test('a second start shows the running panel instead', async (t) => {

@@ -46,6 +46,11 @@ const PRELOAD = path.join(__dirname, 'preload.js')
 const BACKGROUND = Object.freeze({ light: '#FAFAF7', dark: '#121316' })
 // Never a hotkey. Windows owns Alt+Space, and the others are taken on the demo PC.
 const BLOCKED_HOTKEYS = Object.freeze(['Alt+Space', 'Control+Alt+Q', 'Control+Alt+Up', 'Control+Alt+Down'])
+// Windows reports AltGr as Ctrl+Alt, so on keyboards that type a character with AltGr+C (Polish c
+// with an acute accent, the ampersand on Czech, Slovak and Hungarian) a global Ctrl+Alt+C would
+// swallow it in every app and, while listening, send audio. Those systems start on Ctrl+Shift+Space.
+const ALTGR_C_LANGUAGES = Object.freeze(['pl', 'cs', 'sk', 'hu'])
+const ALTGR_HOTKEY_ORDER = Object.freeze(['Control+Shift+Space', 'Control+Alt+Space', 'Control+Alt+C'])
 // own-frame grants the page's own window as the required video track. screen grants a whole screen.
 const VIDEO_SOURCE = process.env.CATCHUP_VIDEO_SOURCE === 'screen' ? 'screen' : 'own-frame'
 
@@ -56,6 +61,8 @@ const COPY = Object.freeze({
   hotkeyNoneFree: () => `${listWords(DESKTOP_HOTKEY_PRESETS.map(hotkeyLabel))} are all in use by other apps. Close one of those apps, then pick a hotkey again.`,
   hotkeyTakenKept: (wanted, kept) => `${hotkeyLabel(wanted)} is in use by another app. ${hotkeyLabel(kept)} stays on.`,
   hotkeyTakenNone: (wanted) => `${hotkeyLabel(wanted)} is in use by another app. No hotkey is on right now.`,
+  hotkeyAltGr: (active) =>
+    `${hotkeyLabel(active)} is on instead of Ctrl+Alt+C, because AltGr+C types a character on this keyboard and Windows reads AltGr as Ctrl+Alt.`,
   tray: Object.freeze({
     catchMeUp: 'Catch me up',
     pause: 'Pause',
@@ -83,6 +90,7 @@ let view = 'compact'
 let focusLatched = false // the compact panel was made focusable by Show panel with focus
 let compactPos = null // top left of the compact panel, null until placed or moved
 let preferredHotkey = DESKTOP_HOTKEY_PRESETS[0]
+let hotkeyPicked = false // the person chose the hotkey in the tray or Settings, so it is never second-guessed
 let hotkeyState = { accelerator: null, registered: false, error: null }
 let lastHotkeyEventAt = -Infinity
 let trayState = { listening: false, problem: null }
@@ -279,10 +287,26 @@ function hotkeyChanged () {
   send(DESKTOP_IPC.hotkeyChanged, { ...hotkeyState })
 }
 
+/** True when the system languages suggest a keyboard that types a character with AltGr+C. */
+function altGrTypesC () {
+  let languages = []
+  try {
+    languages = typeof app.getPreferredSystemLanguages === 'function' ? app.getPreferredSystemLanguages() : []
+  } catch {
+    languages = []
+  }
+  return (languages || []).some((tag) => ALTGR_C_LANGUAGES.includes(String(tag).toLowerCase().split(/[-_]/)[0]))
+}
+
 function registerStartupHotkey () {
-  const order = [preferredHotkey, ...DESKTOP_HOTKEY_PRESETS.filter((preset) => preset !== preferredHotkey)]
+  const altGr = !hotkeyPicked && preferredHotkey === DESKTOP_HOTKEY_PRESETS[0] && altGrTypesC()
+  const order = altGr
+    ? [...ALTGR_HOTKEY_ORDER]
+    : [preferredHotkey, ...DESKTOP_HOTKEY_PRESETS.filter((preset) => preset !== preferredHotkey)]
   const active = order.find((accelerator) => isPreset(accelerator) && tryRegister(accelerator)) || null
-  if (active === preferredHotkey) {
+  if (altGr && active && active !== preferredHotkey) {
+    hotkeyState = { accelerator: active, registered: true, error: COPY.hotkeyAltGr(active) }
+  } else if (active === preferredHotkey) {
     hotkeyState = { accelerator: active, registered: true, error: null }
   } else if (active) {
     hotkeyState = { accelerator: active, registered: true, error: COPY.hotkeyFallback(preferredHotkey, active) }
@@ -312,6 +336,7 @@ function setHotkey (accelerator) {
   }
   hotkeyState = { accelerator, registered: true, error: null }
   preferredHotkey = accelerator
+  hotkeyPicked = true
   saveSettingsSoon()
   hotkeyChanged()
   return { ...hotkeyState }
@@ -702,7 +727,10 @@ function readSettings () {
   } catch {
     return // first run, or a file we cannot read, so the defaults stay
   }
-  if (data && isPreset(data.hotkey)) preferredHotkey = data.hotkey
+  if (data && isPreset(data.hotkey)) {
+    preferredHotkey = data.hotkey
+    hotkeyPicked = data.hotkeyPicked === true
+  }
   const panel = data && data.panel
   if (panel && Number.isFinite(panel.x) && Number.isFinite(panel.y) && Math.abs(panel.x) < 1e6 && Math.abs(panel.y) < 1e6) {
     compactPos = { x: Math.round(panel.x), y: Math.round(panel.y) }
@@ -715,7 +743,8 @@ function writeSettings () {
   const file = settingsPath()
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(file + '.tmp', JSON.stringify({ version: 1, hotkey: preferredHotkey, panel: compactPos }, null, 2))
+    const data = { version: 1, hotkey: preferredHotkey, hotkeyPicked, panel: compactPos }
+    fs.writeFileSync(file + '.tmp', JSON.stringify(data, null, 2))
     fs.renameSync(file + '.tmp', file)
   } catch {
     log('could not save settings')
@@ -777,6 +806,11 @@ function createWindow () {
   })
 
   const contents = win.webContents
+  // The page asks before leaving while cards are not exported. Electron shows no prompt for that
+  // and cancels the unload, which would make Quit Catch Up do nothing, so Quit always wins.
+  contents.on('will-prevent-unload', (event) => {
+    if (quitting) event.preventDefault()
+  })
   contents.on('did-fail-load', onDidFailLoad)
   contents.on('did-navigate', onDidNavigate)
   contents.on('did-finish-load', onDidFinishLoad)
@@ -848,6 +882,7 @@ start()
 
 // Read by the tests only. Electron ignores what the main script exports.
 module.exports = {
+  ALTGR_C_LANGUAGES,
   BLOCKED_HOTKEYS,
   COMPACT_SIZE,
   COPY,

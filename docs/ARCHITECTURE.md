@@ -1,6 +1,6 @@
 # Catch Up architecture
 
-Catch Up keeps the last 2 minutes of sound in memory, and nothing leaves your device until you press. One press sends the last 30, 60 or 120 seconds to a Meta model and gets back a short card in English, Japanese or Simplified Chinese. The card says whether you were just asked something, gives one line you can say to restate or confirm, a short summary, up to 5 facts with unsure marks, and the key quote. It is a hearing and language aid, never a medical product.
+Catch Up keeps the last 2 minutes of sound in memory, and nothing leaves your device until you press. One press sends the last 30, 60 or 120 seconds to a Meta model and gets back a short card in English, Japanese or Simplified Chinese. The card says whether you were just asked something, gives one line you can say to restate or confirm, a short summary, up to 5 facts with unsure marks, and the key quote. Catch Up is an accessibility and language tool, not a medical device.
 
 The product spec is `ux-spec.md` in the research folder. This page fixes the boundaries between the six build lanes, so each lane can work alone against compile-checked contracts.
 
@@ -99,7 +99,9 @@ Errors found before streaming starts (bad header, guards, kill switch, bad WAV) 
 
 ### GET /api/health
 
-Returns `HealthResponse`. Which live routes have keys and their model ids, whether live calls are on (`paused` is `live_off` or `daily_cap` otherwise), the route used for Auto, whether mock is allowed here, and the public limits (`perHour` 0 means no per-client limit). It never returns keys. The handler calls `connection()` first so it runs per request under Cache Components.
+Returns `HealthResponse`. Which live routes have keys and their model ids, whether live calls are on (`paused` is `live_off` when the kill switch is off), the route used for Auto, whether mock is allowed here, and the public limits (`perHour` 0 means no per-client limit). It never reports `daily_cap`, because the cap lives in each instance's memory and on Vercel `/api/card` runs in another function, so a capped press says so in its own error. It never returns keys. The handler calls `connection()` first so it runs per request under Cache Components.
+
+The page reads health once. When it says the kill switch is off, or the route a press would take has no key, the press fails on the device with `live_off` or `not_configured` and `sent` false, so no clip is uploaded for the server to refuse unread.
 
 ## Providers and the Auto fallback
 
@@ -138,12 +140,14 @@ Parsing happens on the server before the card event. `parseCardText` strips cont
 
 ## Server guards
 
-Checks run in this order. Header, the route plan (mock refusal, kill switch and keys), the per-client hourly limit, the daily cap, then the body. A press is refused by a guard before its body is read, but it counts toward the guards only once its body passes and a live provider is about to run.
+Checks run in this order. Header, the route plan (mock refusal, kill switch, keys and Meta's geographic use policy), the per-client hourly limit, the daily cap, an in-flight slot for the client, then the body. A press is refused by a guard before its body is read, but it counts toward the guards only once its body passes. At that point `admit` checks both limits again and counts the press in the same synchronous step, so presses that passed the early checks together during their uploads can never overshoot either limit.
 
 1. The hourly limit (`RATE_LIMIT_PER_HOUR`, 30) and the daily cap (`DAILY_PRESS_CAP`, 500) count live presses only. Mock presses never count toward either.
-2. The client key is the first `x-forwarded-for` address, or `local` (`LOCAL_CLIENT_KEY`) when there is none, which covers in-process calls and local dev.
-3. `RATE_LIMIT_PER_HOUR` 0 turns the hourly limit off, for a local eval server only. `DAILY_PRESS_CAP` stays 1 or more.
-4. The eval in process passes `deps.env` with `ratePerHour` 0 and `deps.clientKey` with one key per run. Over HTTP, `--base-url` accepts only localhost or 127.0.0.1, against a server started with `RATE_LIMIT_PER_HOUR=0`. The eval never runs against the deployed URL, so it never spends the deployed app's daily cap.
+2. One client has at most 2 live presses in flight (`MAX_IN_FLIGHT`), from the upload to the end of the stream. Every refusal frees the slot, and the stream frees it when it ends.
+3. The client key is `clientKeyOf` in `src/lib/server/where.ts`. On Vercel it is `x-real-ip`, with an IPv6 address cut to its /64. Anywhere else forwarding headers are ignored and the key is `local` (`LOCAL_CLIENT_KEY`), because Next sets `x-forwarded-for` only when it is missing and a tunnel appends to it.
+4. On Vercel, a caller whose `x-vercel-ip-country` (and for Ukraine `x-vercel-ip-country-region`) is a territory in Meta's geographic use policy never reaches Route A. Auto keeps only Route B, and a press pinned to `meta_api` is refused with `not_configured`.
+5. `RATE_LIMIT_PER_HOUR` 0 turns every per-client limit off (hourly and in flight), for a local eval server only. `DAILY_PRESS_CAP` stays 1 or more.
+6. The eval in process passes `deps.env` with `ratePerHour` 0 and `deps.clientKey` with one key per run. Over HTTP, `--base-url` accepts only localhost or 127.0.0.1, against a server started with `RATE_LIMIT_PER_HOUR=0`. The eval never runs against the deployed URL, so it never spends the deployed app's daily cap.
 
 ## Client contract
 
@@ -155,11 +159,14 @@ Checks run in this order. Header, the route plan (mock refusal, kill switch and 
 
 ### Press
 
-1. `pressed` with the stall line comes at 0 ms, then sending, stage, still_working at 6 s, and card or error. One press at a time, with a 20 s hard cap.
+1. `pressed` with the stall line comes at 0 ms, then sending, stage, still_working at 6 s, and card or error. One press at a time, with a 20 s hard cap. `pressedAt` is the moment the card is about and every redo keeps it. `startedAt` is when this attempt started, and the elapsed counter and the cancel guard count from it.
 2. Esc or Cancel emits `cancelled` only, never an error event, and the UI shows the `aborted` copy for it. The `aborted` error code is kept for a press that ends without Esc or Cancel, for example `dispose()` mid-press.
 3. A header that fails to encode becomes the `bad_request` error with `sent` false.
 4. Every card carries `meta.sent`, which says whether audio, the earlier transcript or nothing left the device, and whether names and the hint travelled with it.
-5. When a live call for a sample fails, is capped or is off, the press shows the saved card from `getCachedCard`, with a new id, this press's time and sent record, and `meta.cachedBecause`. Its route stays `cached`, with `cachedFrom` and `cachedRunAt` from the saved run.
+5. When a live call for a sample fails, is capped or is off, the press shows the saved card from `getCachedCard`, with a new id, this press's time and sent record, and `meta.cachedBecause`. Its route stays `cached`, with `cachedFrom` and `cachedRunAt` from the saved run. A sample press sends the clip's listener names and never the visitor's session hint.
+6. Further back sends the next window (60, then 120 s) of the held snapshot only while there is something older. A partial card, or memory that holds no more than half a second past what was sent, refuses it as `nothing_more`, and the UI hides the button.
+7. Send anyway marks the held press, so a language chip or Further back on the card it produced skips the silence gate too.
+8. A press cancelled while its snapshot is pending drops that snapshot when a newer press has already asked for its own.
 
 ### Receipt
 
@@ -195,26 +202,26 @@ Keys live only in `.env.local` (git-ignored) or Vercel env, are read only on the
 | `CATCHUP_ROUTE` | `auto` | route used when a press asks for auto |
 | `LIVE_ENABLED` | 1 | kill switch, 0 stops live calls |
 | `ALLOW_MOCK` | 0 | 1 allows mock in dev and tests, production refuses it |
-| `RATE_LIMIT_PER_HOUR` | 30 | live presses per client IP per hour, in memory, 0 turns it off for a local eval server |
+| `RATE_LIMIT_PER_HOUR` | 30 | live presses per client per hour, in memory, 0 turns the per-client limits off for a local eval server |
 | `DAILY_PRESS_CAP` | 500 | live presses per server instance per UTC day, 1 or more |
 | `AUTO_FALLBACK_MS` | 8000 | Route B first-token deadline under Auto |
 
 ## Error codes
 
-The UI shows the English copy from `ERROR_COPY_EN`, then one action. Every error says whether anything was sent, and `stored` is always false.
+The UI shows the English copy from `ERROR_COPY_EN`, then one action. Every error says whether anything was sent, and `stored` is always false. Try a sample shows only when a sample has a saved real card (`hasCachedSamples`), otherwise a paused error says to try again later. The other route button names where it sends the clip and shows only under Auto, never for a pinned route.
 
 | Code | HTTP before streaming | Retryable | Action | When |
 | - | - | - | - | - |
 | `bad_request` | 400 | no | Reload | header or body unreadable, or the header failed to encode on the device |
 | `bad_audio` | 400 | no | Check source | not 16 kHz mono PCM16, or under 1 s |
 | `too_large` | 413 | no | none | over 4.4 MB or 125 s |
-| `rate_limited` | 429 | yes | Try a sample | per-client hourly limit |
+| `rate_limited` | 429 | yes | Try a sample | per-client hourly limit, or 2 presses already in flight |
 | `daily_cap` | 503 | no | Try a sample | server daily cap reached |
 | `live_off` | 503 | no | Try a sample | `LIVE_ENABLED` is 0 |
 | `not_configured` | 503 | no | Try a sample | no key for the route asked for |
 | `mock_refused` | 403 | no | none | mock asked for in production |
-| `timeout` | 504 | yes | Retry, or Use the other route | 20 s hard cap |
-| `provider_error` | 502 | yes | Retry, or Use the other route | model service failed |
+| `timeout` | 504 | yes | Retry, or Send to the other route under Auto | 20 s hard cap |
+| `provider_error` | 502 | yes | Retry, or Send to the other route under Auto | model service failed |
 | `server_error` | 500 | yes | Retry | unexpected server failure |
 | `offline` | client only | yes | Retry | the device is offline, nothing sent |
 | `network` | client only | yes | Retry | fetch failed while online |
@@ -249,7 +256,7 @@ The UI shows the English copy from `ERROR_COPY_EN`, then one action. Every error
 | Warm-up before a press | 5 s in memory |
 | Hard cap | 20 s from press to card or error |
 | Snapshot hold | 2 minutes, also for a finished sample |
-| Hourly limit and daily cap | 30 live presses per client per hour, 500 live presses per day, both best effort and in memory, mock exempt |
+| Hourly limit and daily cap | 30 live presses per client per hour, 2 in flight per client, 500 live presses per day, all best effort and in memory, mock exempt |
 
 ## Timing budget
 

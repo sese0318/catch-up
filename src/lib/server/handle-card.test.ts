@@ -80,6 +80,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -486,12 +487,15 @@ describe("mock", () => {
 
 describe("guards", () => {
   const from = (ip: string) => cardRequest({ headers: { "X-Forwarded-For": ip } });
+  const fromVercel = (ip: string, more: Record<string, string> = {}) =>
+    cardRequest({ headers: { "X-Real-IP": ip, "X-Forwarded-For": "10.9.9.9", ...more } });
 
-  it("limits live presses per client per hour, keyed by the first x-forwarded-for address", async () => {
+  it("limits live presses per client per hour, keyed by x-real-ip on Vercel", async () => {
+    vi.stubEnv("VERCEL", "1");
     const { deps, logs } = setup({ env: testEnv({ ratePerHour: 2 }), providers: live().providers });
-    expect((await handleCardRequest(from("203.0.113.5, 10.0.0.1"), deps)).status).toBe(200);
-    expect((await handleCardRequest(from("203.0.113.5, 10.0.0.2"), deps)).status).toBe(200);
-    const req = from("203.0.113.5");
+    expect((await handleCardRequest(fromVercel("203.0.113.5"), deps)).status).toBe(200);
+    expect((await handleCardRequest(fromVercel("203.0.113.5", { "X-Forwarded-For": "10.0.0.2" }), deps)).status).toBe(200);
+    const req = fromVercel("203.0.113.5");
     const limited = await handleCardRequest(req, deps);
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(3_500);
@@ -499,8 +503,23 @@ describe("guards", () => {
     expect(error).toMatchObject({ code: "rate_limited", retryable: true, stored: false });
     expect(error.retryAfterSec).toBeGreaterThan(3_500);
     expect(req.bodyUsed).toBe(false);
-    expect((await handleCardRequest(from("198.51.100.7"), deps)).status).toBe(200);
+    expect((await handleCardRequest(fromVercel("198.51.100.7"), deps)).status).toBe(200);
     expect(JSON.stringify(logs)).not.toContain("203.0.113.5");
+  });
+
+  it("cuts an IPv6 address to its /64 on Vercel", async () => {
+    vi.stubEnv("VERCEL", "1");
+    const { deps } = setup({ env: testEnv({ ratePerHour: 1 }), providers: live().providers });
+    expect((await handleCardRequest(fromVercel("2001:db8:aa:bb:1::1"), deps)).status).toBe(200);
+    expect((await handleCardRequest(fromVercel("2001:0db8:00aa:00bb:ffff::2"), deps)).status).toBe(429);
+    expect((await handleCardRequest(fromVercel("2001:db8:aa:bc::1"), deps)).status).toBe(200);
+  });
+
+  it("ignores forwarding headers off Vercel, so one machine is one client", async () => {
+    const { deps } = setup({ env: testEnv({ ratePerHour: 1 }), providers: live().providers });
+    expect((await handleCardRequest(from("203.0.113.5"), deps)).status).toBe(200);
+    expect((await handleCardRequest(from("198.51.100.7"), deps)).status).toBe(429);
+    expect((await handleCardRequest(cardRequest({ headers: { "X-Real-IP": "192.0.2.1" } }), deps)).status).toBe(429);
   });
 
   it("uses deps.clientKey when given, and the local key without a forwarded address", async () => {
@@ -526,7 +545,7 @@ describe("guards", () => {
     expect((await handleCardRequest(cardRequest(), deps)).status).toBe(429);
   });
 
-  it("stops live presses at the daily cap and reports it in health", async () => {
+  it("stops live presses at the daily cap, which only the press error reports", async () => {
     const env = testEnv({ dailyCap: 2 });
     const { deps } = setup({ env, providers: live().providers });
     expect((await handleCardRequest(from("203.0.113.1"), deps)).status).toBe(200);
@@ -536,8 +555,85 @@ describe("guards", () => {
     expect(capped.status).toBe(503);
     expect(errorOf(await eventsOf(capped))).toEqual({ code: "daily_cap", retryable: false, stored: false });
     expect(req.bodyUsed).toBe(false);
+    // The cap lives in this instance's memory, and /api/health may run in another one.
     const health = HealthResponse.parse(await handleHealthRequest({ env }).json());
-    expect(health).toMatchObject({ live: false, paused: "daily_cap" });
+    expect(health).toMatchObject({ live: true, paused: null });
+  });
+
+  it("checks the limits again when parallel uploads finish, so a burst never overshoots", async () => {
+    const hourly = live();
+    const one = setup({ env: testEnv({ ratePerHour: 1 }), providers: hourly.providers });
+    const both = await Promise.all([handleCardRequest(cardRequest(), one.deps), handleCardRequest(cardRequest(), one.deps)]);
+    expect(both.map((r) => r.status).sort()).toEqual([200, 429]);
+    await Promise.all(both.map((r) => eventsOf(r)));
+    expect(hourly.b.runs).toBe(1);
+
+    pressGuards.reset();
+    const daily = live();
+    const capped = setup({ env: testEnv({ dailyCap: 1 }), providers: daily.providers });
+    const pair = await Promise.all([handleCardRequest(cardRequest(), capped.deps), handleCardRequest(cardRequest(), capped.deps)]);
+    expect(pair.map((r) => r.status).sort()).toEqual([200, 503]);
+    await Promise.all(pair.map((r) => eventsOf(r)));
+    expect(daily.b.runs).toBe(1);
+  });
+
+  it("lets one client run at most 2 live presses at once, and frees a slot when a stream ends", async () => {
+    const { providers } = live({ b: async ({ signal }) => untilAborted(signal) });
+    const { deps } = setup({ env: testEnv({ ratePerHour: 100, routePolicy: "open_weights" }), providers });
+    const stops = [new AbortController(), new AbortController(), new AbortController()];
+    const first = await handleCardRequest(cardRequest({ signal: stops[0].signal }), deps);
+    const second = await handleCardRequest(cardRequest({ signal: stops[1].signal }), deps);
+    expect([first.status, second.status]).toEqual([200, 200]);
+
+    const third = cardRequest();
+    const refused = await handleCardRequest(third, deps);
+    expect(refused.status).toBe(429);
+    expect(errorOf(await eventsOf(refused))).toMatchObject({ code: "rate_limited", retryAfterSec: LIMITS.hardCapMs / 1000 });
+    expect(third.bodyUsed).toBe(false);
+
+    stops[0].abort();
+    await eventsOf(first).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    const fourth = await handleCardRequest(cardRequest({ signal: stops[2].signal }), deps);
+    expect(fourth.status).toBe(200);
+    stops[1].abort();
+    stops[2].abort();
+    await Promise.all([eventsOf(second).catch(() => undefined), eventsOf(fourth).catch(() => undefined)]);
+  });
+});
+
+describe("Meta's geographic use policy", () => {
+  const fromCountry = (country: string, extra: Record<string, string> = {}, meta = testMeta()) =>
+    cardRequest({ meta, headers: { "X-Vercel-IP-Country": country, "X-Real-IP": "203.0.113.20", ...extra } });
+
+  it("keeps Auto on Route B and refuses a pinned Route A from a listed territory on Vercel", async () => {
+    vi.stubEnv("VERCEL", "1");
+    const { b, a, providers } = live({ b: async () => Promise.reject(new ProviderError("http", "open_weights", { status: 500 })) });
+    const { deps } = setup({ providers });
+    const auto = await eventsOf(await handleCardRequest(fromCountry("HK"), deps));
+    expect(errorOf(auto)).toMatchObject({ code: "provider_error", route: "open_weights" });
+    expect(namesOf(auto)).not.toContain("stage:fallback");
+    expect(b.runs).toBe(1);
+    expect(a.runs).toBe(0);
+
+    const pinned = await handleCardRequest(fromCountry("CN", {}, testMeta({ route: "meta_api" })), deps);
+    expect(pinned.status).toBe(503);
+    expect(errorOf(await eventsOf(pinned)).code).toBe("not_configured");
+    const crimea = await handleCardRequest(fromCountry("UA", { "X-Vercel-IP-Country-Region": "43" }, testMeta({ route: "meta_api" })), deps);
+    expect(crimea.status).toBe(503);
+    expect(a.runs).toBe(0);
+
+    const kyiv = await handleCardRequest(fromCountry("UA", { "X-Vercel-IP-Country-Region": "30" }, testMeta({ route: "meta_api" })), deps);
+    expect(cardOf(await eventsOf(kyiv)).meta.route).toBe("meta_api");
+    expect(a.runs).toBe(1);
+  });
+
+  it("ignores the country header off Vercel", async () => {
+    const { a, providers } = live();
+    const { deps } = setup({ providers });
+    const res = await handleCardRequest(fromCountry("CN", {}, testMeta({ route: "meta_api" })), deps);
+    expect(cardOf(await eventsOf(res)).meta.route).toBe("meta_api");
+    expect(a.runs).toBe(1);
   });
 });
 

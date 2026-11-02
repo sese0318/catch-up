@@ -17,6 +17,7 @@ import {
   type DesktopTrayState,
   type DesktopView,
   type LevelReading,
+  type LiveStatus,
   type PressDeps,
   type PressEvent,
   type PressPipeline,
@@ -27,10 +28,10 @@ import type { CardLang } from "../card/schema";
 import { createPressPipeline, newSessionId } from "../press/press";
 import { HEALTH_ENDPOINT, LIMITS, type MockSpec, type RoutePreference } from "../protocol";
 import type { SampleClip } from "../samples/catalog";
-import { sourceLostLabel, quietHint } from "./copy";
+import { CAPTURE_ERROR_COPY, UI, noticeText, quietHint, sourceLostLabel } from "./copy";
 import { eventEpochMs, isCatchUpCombo, isComposing, isEscape } from "./hotkey";
 import { openPipWindow, syncRootAttributes, isDocPipSupported } from "./pip";
-import { parseHealth, parseMockParam, planRoute, type HealthView } from "./route";
+import { liveRoutesConfigured, parseHealth, parseMockParam, planRoute, type HealthView } from "./route";
 import { INITIAL_CORE, sessionReducer, type SessionAction, type SessionCore } from "./session-state";
 import { getSettingsStore, type LiveSource, type SettingsStore } from "./settings";
 import { createWakeLock, type WakeLockHandle } from "./wake-lock";
@@ -298,6 +299,9 @@ export class SessionController {
 
     const onKey = (e: KeyboardEvent) => this.onKeyDown(e);
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      // The Windows app hides to the tray instead of closing, and Electron would cancel Quit and
+      // Reload silently on this guard, so only browser tabs ask before leaving.
+      if (this.bridge) return;
       if (this.snap.core.unexported && this.snap.core.cards.length > 0) {
         e.preventDefault();
         e.returnValue = "";
@@ -370,7 +374,20 @@ export class SessionController {
       tz,
     };
     if (plan.mock) out.mock = plan.mock;
+    const live = this.liveStatus();
+    if (live) out.live = live;
     return out;
+  }
+
+  /** What /api/health said, so a press the server would refuse unread fails on the device instead. */
+  private liveStatus(): LiveStatus | null {
+    const health = this.snap.health;
+    if (health.state !== "ok") return null;
+    return {
+      liveOff: health.data.paused === "live_off",
+      defaultRoute: health.data.defaultRoute,
+      configured: liveRoutesConfigured(health),
+    };
   }
 
   // Engine and pipeline events
@@ -378,6 +395,7 @@ export class SessionController {
   private onCapture(): void {
     const engine = this.engine;
     if (!engine) return;
+    const prev = this.snap.capture;
     const capture = engine.getStatus();
     const source = engine.getSource();
     const next: Partial<ControllerSnapshot> = { capture, source };
@@ -388,9 +406,25 @@ export class SessionController {
     if (!keepSample) next.sample = null;
     if (capture.state !== "listening") this.resetLevel();
     this.patch(next);
+    this.announceCapture(prev, capture);
     this.wake?.set(this.snap.support.phone && capture.state === "listening");
     this.updateTitle();
     this.updateTray();
+  }
+
+  /** Capture problems show as notices, so screen readers hear them through the live region too. */
+  private announceCapture(prev: CaptureStatus, capture: CaptureStatus): void {
+    if (prev === capture) return;
+    if (capture.state === "error" && (prev.state !== "error" || prev.code !== capture.code)) {
+      this.announce(CAPTURE_ERROR_COPY[capture.code], true);
+    } else if (capture.state === "paused" && (prev.state !== "paused" || prev.reason !== capture.reason)) {
+      if (capture.reason === "source_lost") this.announce(sourceLostLabel(capture.source), true);
+      else if (capture.reason === "interrupted") this.announce(UI.interrupted, true);
+    }
+  }
+
+  private announce(text: string, assertive = false): void {
+    this.dispatch({ type: "announce", text, assertive });
   }
 
   private onLevel(reading: LevelReading): void {
@@ -452,6 +486,7 @@ export class SessionController {
   private notify(kind: NoticeKind, secondsLeft?: number): void {
     this.noticeSeq += 1;
     this.patch({ notice: { kind, seq: this.noticeSeq, secondsLeft } });
+    this.announce(noticeText(kind, secondsLeft ?? 1));
   }
 
   clearNotice(): void {
@@ -534,6 +569,7 @@ export class SessionController {
       case "nothing_held":
         this.notify("nothing_held");
         break;
+      case "nothing_more": // Further back has nothing older, and the button is hidden for that
       case "busy":
         break; // extra presses while a request is in flight are ignored
     }
@@ -644,6 +680,7 @@ export class SessionController {
       const unexpected = !this.closingPip;
       this.closingPip = false;
       this.patch({ pip: { ...this.snap.pip, window: null, closedUnexpectedly: unexpected } });
+      if (!unexpected) this.focusBigButtonSoon();
     };
     pipWin.addEventListener("pagehide", onHide, { once: true });
     this.pipKeyCleanup = () => {
@@ -664,6 +701,20 @@ export class SessionController {
     } catch {
       // Focus is a nicety.
     }
+  }
+
+  /** After Bring the panel back, focus lands on the big button in the tab, not on the page body. */
+  private focusBigButtonSoon(): void {
+    const win = this.deps?.win;
+    if (!win) return;
+    const run = () => {
+      const doc = win.document;
+      const active = doc.activeElement;
+      if (active && active !== doc.body) return;
+      doc.querySelector<HTMLElement>(".cu-big")?.focus();
+    };
+    if (typeof win.requestAnimationFrame === "function") win.requestAnimationFrame(() => win.requestAnimationFrame(run));
+    else win.setTimeout(run, 0);
   }
 
   dismissPipNote(): void {

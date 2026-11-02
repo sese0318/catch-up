@@ -1,7 +1,7 @@
 // This session (ux-spec 3 History). Memory only, newest first. A row shows the state chip,
 // summary[0], the time and the window, and expands into the full card with Copy card.
 // Export .md is a download on computers and the share sheet on phones. Clear asks once.
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { Card } from "@/lib/card/schema";
 import { ASK_CHIPS, UI, cardWindow, clearCount } from "@/lib/client/copy";
 import { exportCards } from "@/lib/client/export";
@@ -52,12 +52,45 @@ function HistoryRow({ card, showing }: { card: Card; showing: boolean }) {
   );
 }
 
+/** Focus that would fall to the page body when its button goes away lands here instead. */
+function focusIfLost(target: HTMLElement | null | undefined): void {
+  if (!target) return;
+  const doc = target.ownerDocument;
+  const active = doc.activeElement;
+  if (active && active !== doc.body) return;
+  target.focus();
+}
+
 export function History({ preferShare = false, titleId = "cu-history-h" }: { preferShare?: boolean; titleId?: string }) {
   const session = useSession();
   const ctl = useController();
   const [confirming, setConfirming] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
   const cards = session.core.cards;
+  const sectionRef = useRef<HTMLElement>(null);
+  const clearRef = useRef<HTMLButtonElement>(null);
+  const keepRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const cleared = useRef(false);
+  const swapped = useRef(false);
+
+  // Clear swaps itself for Clear N cards and Keep, and Keep swaps back, so focus follows the swap.
+  useEffect(() => {
+    if (!swapped.current) return;
+    swapped.current = false;
+    focusIfLost(confirming ? keepRef.current : clearRef.current);
+  }, [confirming]);
+
+  // After Clear N cards the whole list goes. In the phone sheet focus stays on this section's
+  // title, and beside the panel it goes back to the big button.
+  useEffect(() => {
+    if (!cleared.current || cards.length > 0) return;
+    cleared.current = false;
+    const section = sectionRef.current;
+    if (!section) return;
+    const inSheet = section.closest("dialog") !== null;
+    focusIfLost(inSheet ? titleRef.current : section.ownerDocument.querySelector<HTMLElement>(".cu-big"));
+  }, [cards.length]);
 
   const onExport = async (event: React.MouseEvent<HTMLButtonElement>) => {
     const result = await exportCards(cards, { preferShare, win: ownerWindowOf(event.currentTarget) });
@@ -68,9 +101,9 @@ export function History({ preferShare = false, titleId = "cu-history-h" }: { pre
   };
 
   return (
-    <section className="cu-history" aria-labelledby={titleId}>
+    <section className="cu-history" aria-labelledby={titleId} ref={sectionRef}>
       <div className="cu-history-head">
-        <h2 id={titleId} className="cu-side-title" lang="en">
+        <h2 id={titleId} className="cu-side-title" lang="en" tabIndex={-1} ref={titleRef}>
           {UI.thisSession}
           {cards.length > 0 ? <span className="cu-count"> ({cards.length})</span> : null}
         </h2>
@@ -81,7 +114,15 @@ export function History({ preferShare = false, titleId = "cu-history-h" }: { pre
               <span>{UI.exportMd}</span>
             </button>
             {!confirming ? (
-              <button type="button" className="cu-btn cu-btn-quiet cu-btn-small" onClick={() => setConfirming(true)}>
+              <button
+                type="button"
+                className="cu-btn cu-btn-quiet cu-btn-small"
+                onClick={() => {
+                  swapped.current = true;
+                  setConfirming(true);
+                }}
+                ref={clearRef}
+              >
                 <TrashIcon aria-hidden="true" />
                 <span>{UI.clear}</span>
               </button>
@@ -91,6 +132,7 @@ export function History({ preferShare = false, titleId = "cu-history-h" }: { pre
                   type="button"
                   className="cu-btn cu-btn-danger cu-btn-small"
                   onClick={() => {
+                    cleared.current = true;
                     ctl.clearHistory();
                     setConfirming(false);
                     setExportNote(null);
@@ -98,7 +140,15 @@ export function History({ preferShare = false, titleId = "cu-history-h" }: { pre
                 >
                   {clearCount(cards.length)}
                 </button>
-                <button type="button" className="cu-btn cu-btn-quiet cu-btn-small" onClick={() => setConfirming(false)}>
+                <button
+                  type="button"
+                  className="cu-btn cu-btn-quiet cu-btn-small"
+                  onClick={() => {
+                    swapped.current = true;
+                    setConfirming(false);
+                  }}
+                  ref={keepRef}
+                >
                   {UI.keep}
                 </button>
               </>

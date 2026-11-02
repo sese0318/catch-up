@@ -346,7 +346,7 @@ export interface PressLogEntry {
   ms: { total: number; firstToken?: number; asr?: number };
 }
 
-/** The rate limit key when a request has no x-forwarded-for address (in-process calls, local dev). */
+/** The rate limit key off Vercel (local dev, a tunnel, in-process calls), and on Vercel without x-real-ip. */
 export const LOCAL_CLIENT_KEY = "local";
 
 /** Injection points for handleCardRequest, used by tests and by the eval runner in process. */
@@ -356,7 +356,7 @@ export interface CardHandlerDeps {
   providers?: Partial<Record<ProviderId, CardProvider>>;
   now?: () => number;
   log?: (entry: PressLogEntry) => void;
-  /** Rate limit key. Defaults to the first x-forwarded-for address, else LOCAL_CLIENT_KEY. The eval passes one key per run. */
+  /** Rate limit key. Defaults to clientKeyOf in src/lib/server/where.ts. The eval passes one key per run. */
   clientKey?: (req: Request) => string;
 }
 

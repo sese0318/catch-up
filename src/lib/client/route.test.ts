@@ -67,6 +67,16 @@ describe("route plan", () => {
     expect(otherRoute("open_weights", { route: "mock", mockReason: "param" }, health())).toBeNull();
   });
 
+  it("never switches a pinned route, so Open weights only never reaches the Meta Model API", () => {
+    expect(otherRoute("open_weights", planRoute("open_weights", health(), null), health())).toBeNull();
+    expect(otherRoute(undefined, planRoute("open_weights", health(), null), health())).toBeNull();
+    const pinnedServer = health();
+    if (pinnedServer.state === "ok") pinnedServer.data.defaultRoute = "open_weights";
+    expect(otherRoute("open_weights", planRoute("auto", pinnedServer, null), pinnedServer)).toBeNull();
+    expect(otherRoute("meta_api", planRoute("meta_api", health(), null), health())).toBeNull();
+    expect(otherRoute("open_weights", planRoute("auto", { state: "loading" }, null), { state: "loading" })).toBeNull();
+  });
+
   it("parses health and refuses anything else", () => {
     const h = health();
     expect(h.state === "ok" && parseHealth(h.data)).toBeTruthy();

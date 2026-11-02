@@ -294,14 +294,14 @@ describe("server contract", () => {
       meetingLang: "en",
       cardLang: "ja",
       names: ["Seika", "セイカ", "星佳"],
-      hint: "Prof. Gagne, PSY-201、operant conditioning，seika",
+      hint: "Dr. Rivera, BIO-110、cell membranes，seika",
     } as const;
     expect(buildAsrRequest(press, ENV_DEFAULTS.META_ASR_MODEL)).toEqual({
       model: "muse-voice-transcribe-1.0",
       audioEncoding: "WAV",
       mode: "PUSH_TO_TALK",
       languageBias: ["English", "Japanese"],
-      keywords: ["Seika", "セイカ", "星佳", "Prof. Gagne", "PSY-201", "operant conditioning"],
+      keywords: ["Seika", "セイカ", "星佳", "Dr. Rivera", "BIO-110", "cell membranes"],
     });
     const plain = buildAsrRequest({ meetingLang: "zh", cardLang: "zh", names: [] }, "muse-voice-transcribe-1.0");
     expect(plain.languageBias).toEqual(["Mandarin Chinese"]);

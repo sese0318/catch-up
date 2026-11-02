@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // The dev indicator sits over the corner of Catch up in the 360 x 480 Windows panel.
+  devIndicators: false,
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,

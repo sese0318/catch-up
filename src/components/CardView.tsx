@@ -18,7 +18,7 @@ import {
 import { clockOfIso, formatRunDate } from "@/lib/client/format";
 import { useController, useNow, useSession, useSettings, useSettingsStore } from "@/lib/client/hooks";
 import { label, plainTextOf, receiptOf, scriptLang, tagOf } from "@/lib/client/local";
-import { canReuseClip, isLatestCard } from "@/lib/client/session-state";
+import { canReuseClip, hasMoreToSend, isLatestCard } from "@/lib/client/session-state";
 import {
   ArrowClockwiseIcon,
   ArrowCounterClockwiseIcon,
@@ -55,9 +55,19 @@ function cardTag(card: Card): string {
   return tagOf(card.meta.cardLang);
 }
 
+/**
+ * Han-only text (Japanese dates, numbers and kanji names have no kana) reads as Japanese when the
+ * card or its say line is Japanese, or when people around usually speak Japanese.
+ */
+function useHanAsJa(card: Card): boolean {
+  const { settings } = useSettings();
+  return card.meta.cardLang === "ja" || card.say?.lang === "ja" || settings.meetingLang === "ja";
+}
+
 function AskBanner({ card, showQuote }: { card: Card; showQuote: boolean }) {
   const lang = card.meta.cardLang;
   const tag = cardTag(card);
+  const hanAsJa = useHanAsJa(card);
   const { to, text, by } = card.ask;
   if (to === "none") {
     return (
@@ -69,7 +79,7 @@ function AskBanner({ card, showQuote }: { card: Card; showQuote: boolean }) {
   }
   const Icon = to === "you" ? HandWavingIcon : to === "room" ? UsersThreeIcon : AtIcon;
   const key = to === "you" ? "askedYou" : to === "room" ? "room" : "mentioned";
-  const quoteTag = card.quote ? scriptLang(card.quote) : null;
+  const quoteTag = card.quote ? scriptLang(card.quote, hanAsJa) : null;
   return (
     <div className={cx("cu-ask", to === "you" ? "cu-ask-you" : "cu-ask-neutral")}>
       <p className="cu-ask-label" lang={tag}>
@@ -84,7 +94,7 @@ function AskBanner({ card, showQuote }: { card: Card; showQuote: boolean }) {
       {by ? (
         <p className="cu-ask-by">
           <UserCircleIcon aria-hidden="true" />
-          <span lang={scriptLang(by)}>{by}</span>
+          <span lang={scriptLang(by, hanAsJa)}>{by}</span>
         </p>
       ) : null}
       {showQuote && card.quote && quoteTag !== tag ? (
@@ -132,12 +142,15 @@ function FactItem({ fact, card }: { fact: Fact; card: Card }) {
   const Icon = FACT_ICONS[fact.kind];
   const lang = card.meta.cardLang;
   const tag = cardTag(card);
+  const hanAsJa = useHanAsJa(card);
+  // Dates and numbers are written in the card language, so they take its tag.
+  const textLang = fact.kind === "date" || fact.kind === "number" ? tag : scriptLang(fact.text, hanAsJa);
   return (
     <li className="cu-fact" data-unsure={fact.unsure ? "true" : undefined}>
       <Icon aria-hidden="true" className="cu-fact-icon" />
       <VisuallyHidden lang="en">{FACT_KIND_NAMES[fact.kind]}, </VisuallyHidden>
       <span className="cu-fact-main">
-        <span className="cu-fact-text" lang={scriptLang(fact.text)}>
+        <span className="cu-fact-text" lang={textLang}>
           {fact.text}
         </span>
         {fact.unsure ? (
@@ -159,6 +172,7 @@ function FactItem({ fact, card }: { fact: Fact; card: Card }) {
 function Evidence({ card }: { card: Card }) {
   const [open, setOpen] = useState(false);
   const id = useId();
+  const hanAsJa = useHanAsJa(card);
   const quote = card.quote;
   const transcript = card.meta.transcript;
   if (!quote && !transcript) return null;
@@ -177,7 +191,7 @@ function Evidence({ card }: { card: Card }) {
       </button>
       <div id={id} hidden={!open} className="cu-evidence-body">
         {quote ? (
-          <blockquote className="cu-quote" lang={scriptLang(quote)}>
+          <blockquote className="cu-quote" lang={scriptLang(quote, hanAsJa)}>
             {quote}
           </blockquote>
         ) : null}
@@ -186,7 +200,7 @@ function Evidence({ card }: { card: Card }) {
             <p className="cu-evidence-label" lang="en">
               {UI.transcript}
             </p>
-            <p className="cu-transcript" lang={scriptLang(transcript)}>
+            <p className="cu-transcript" lang={scriptLang(transcript, hanAsJa)}>
               {transcript}
             </p>
           </>
@@ -221,7 +235,8 @@ function RedoRow({ card }: { card: Card }) {
   const now = useNow(held);
   const reusable = canReuseClip(session.core, now);
   const busy = session.core.request.phase === "busy";
-  const next = nextWindow(card.meta.windowSec);
+  // Further back only when there is something older to send. A partial card already holds all there was.
+  const next = hasMoreToSend(session.core, card) ? nextWindow(card.meta.windowSec) : null;
   const [pickedNext, setPickedNext] = useState<CardLang | null>(null);
   const isSample = card.meta.source === "sample";
 
@@ -304,6 +319,7 @@ export function CardView({
   const clock = clockOfIso(card.meta.pressedAt);
   const latest = interactive && isLatestCard(session.core, card);
   const unformatted = card.meta.unformatted === true;
+  const hanAsJa = useHanAsJa(card);
   const Heading = headingLevel === 2 ? "h2" : "h3";
 
   return (
@@ -361,7 +377,7 @@ export function CardView({
           <p className="cu-unformatted-note" lang="en">
             {UI.unformattedNote}
           </p>
-          <p className="cu-unformatted-text" lang={scriptLang(card.summary[0])}>
+          <p className="cu-unformatted-text" lang={scriptLang(card.summary[0], hanAsJa)}>
             {card.summary[0]}
           </p>
           {latest ? (

@@ -8,10 +8,13 @@ export type ScriptLang = "en" | "ja" | "zh-Hans";
 const KANA = /[\p{Script=Hiragana}\p{Script=Katakana}]/u;
 const HAN = /\p{Script=Han}/u;
 
-/** Script check for lang attributes (ux-spec 6 item 4). Kana means ja, Han only means zh-Hans, else en. */
-export function scriptLangOf(text: string): ScriptLang {
+/**
+ * Script check for lang attributes (ux-spec 6 item 4). Kana means ja, else Han means hanLang
+ * (zh-Hans unless the caller knows the context is Japanese), else en.
+ */
+export function scriptLangOf(text: string, hanLang: "ja" | "zh-Hans" = "zh-Hans"): ScriptLang {
   if (KANA.test(text)) return "ja";
-  if (HAN.test(text)) return "zh-Hans";
+  if (HAN.test(text)) return hanLang;
   return "en";
 }
 
@@ -33,9 +36,14 @@ export function langTag(lang: CardLang | SayLang): string {
 
 type Script = "en" | "ja" | "zh";
 
-function scriptOf(text: string): Script {
-  const lang = scriptLangOf(text);
+function scriptOf(text: string, hanLang: "ja" | "zh-Hans" = "zh-Hans"): Script {
+  const lang = scriptLangOf(text, hanLang);
   return lang === "zh-Hans" ? "zh" : lang;
+}
+
+/** Han-only text on a Japanese card or after a Japanese say line is Japanese. */
+function hanLangOf(card: Card): "ja" | "zh-Hans" {
+  return card.meta.cardLang === "ja" || card.say?.lang === "ja" ? "ja" : "zh-Hans";
 }
 
 /** " (a, b)" in English, "（a、b）" in Japanese, "（a，b）" in Chinese, "" when empty. */
@@ -93,7 +101,7 @@ function cardParts(card: Card): CardParts {
     const extra = [...(fact.unsure ? [s("unsure")] : []), ...(fact.note ? [fact.note] : [])];
     parts.facts.push(`${fact.text}${paren(lang, extra)}`);
   }
-  if (card.quote) parts.quote.push(s("evidence"), quoted(card.quote, scriptOf(card.quote)));
+  if (card.quote) parts.quote.push(s("evidence"), quoted(card.quote, scriptOf(card.quote, hanLangOf(card))));
   return parts;
 }
 
@@ -213,7 +221,11 @@ function joinAnd(items: readonly string[]): string {
   return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
 }
 
-/** What left the device with this press, from meta.sent. */
+/**
+ * What left the device with this press. The body, names and hint from meta.sent, then the press
+ * details every press carries (prompt.ts userText and the X-CatchUp-Meta header), and the random
+ * tab id that reaches Baseten as x-session-affinity on the main route.
+ */
 function sentItems(meta: CardMeta): string {
   const window = `${meta.windowSec} s`;
   const items: string[] = [];
@@ -229,7 +241,8 @@ function sentItems(meta: CardMeta): string {
   // A sample press sends the clip's listener names, never the visitor's own.
   if (meta.sent.names) items.push(meta.source === "sample" ? "the sample's listener name" : "your name");
   if (meta.sent.hint) items.push("your hint");
-  items.push("card language");
+  items.push("card and meeting languages", "source type", "local time with time zone");
+  if (meta.route !== "meta_api" || meta.fallbackFrom === "open_weights") items.push("a random tab id");
   return joinAnd(items);
 }
 
@@ -261,9 +274,10 @@ const SAVED_NOTHING = "Catch Up saved nothing.";
  * meta.fallbackFrom when the backup route was used), meta.model, ms.total in seconds with one
  * decimal, the clock time of pressedAt, and ends with "Catch Up saved nothing." What left the
  * device comes from meta.sent (audio or the earlier transcript, your name when names, or the
- * sample's listener name on a sample, your hint when hint). For example "Sent the last 30 s of audio, your name and card language to Muse Spark
- * Open on Baseten (meta-models/muse-spark-open-1026) at 10:42:40. Card in 2.9 s. Catch Up saved
- * nothing." A cached card says why from meta.cachedBecause and names its saved run (label, model,
+ * sample's listener name on a sample, your hint when hint), then the details every press carries.
+ * For example "Sent the last 30 s of audio, your name, card and meeting languages, source type,
+ * local time with time zone and a random tab id to Muse Spark Open on Baseten
+ * (meta-models/muse-spark-open-1026) at 10:42:40. Card in 2.9 s. Catch Up saved nothing." A cached card says why from meta.cachedBecause and names its saved run (label, model,
  * meta.cachedRunAt and its seconds) without claiming a model got this press. A mock card says
  * "Sample card, no model was called. Catch Up saved nothing."
  */

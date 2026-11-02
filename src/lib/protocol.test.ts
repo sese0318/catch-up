@@ -44,7 +44,7 @@ const meta: PressMeta = {
   sentSec: 30,
   source: "tab",
   names: ["Seika", "セイカ", "星佳"],
-  hint: "Prof. Gagne, PSY-201, operant conditioning",
+  hint: "Dr. Rivera, BIO-110, cell membranes",
   route: "auto",
   sessionId: "0f6c1d2e-3a4b-4c5d-8e9f-0a1b2c3d4e5f",
 };
@@ -180,7 +180,7 @@ describe("X-CatchUp-Meta header", () => {
     ]);
     expect(normalizeHint("   ")).toBeUndefined();
     expect(normalizeHint(undefined)).toBeUndefined();
-    expect(normalizeHint(" Prof.  Gagne,\nPSY-201 ")).toBe("Prof. Gagne, PSY-201");
+    expect(normalizeHint(" Dr.  Rivera,\nBIO-110 ")).toBe("Dr. Rivera, BIO-110");
     expect(normalizeHint("あ".repeat(70))).toBe("あ".repeat(60));
     const messy = { ...meta, names: normalizeNames([" ", "星佳".repeat(20), "Seika"]), hint: normalizeHint("い".repeat(99)) };
     expect(() => encodeMetaHeader(messy)).not.toThrow();

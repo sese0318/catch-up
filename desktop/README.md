@@ -15,13 +15,13 @@ Built with Muse Spark Open. Cards are written by AI and can be wrong. Catch Up i
 
 You need Node 22 or newer, and the web app running where this computer can reach it.
 
-1. In the repo root, start the web app with `npm run dev`. It serves http://localhost:3000 by default.
-2. Open PowerShell in `desktop` and run `npm install` once.
+1. In the repo root, start the web app with `npm run dev`. It serves http://localhost:3000 and listens on 127.0.0.1 only, so other devices on the network cannot reach it. For the demo recording use `npm run build` and then `npm start` instead, which listen the same way and show no development overlays.
+2. Open PowerShell in `desktop` and run `npm ci` once. It installs the exact versions pinned in `desktop/package-lock.json`, with nothing resolved fresh.
 3. Run `npm start`. The Electron 45.2.1 runtime, about 150 MB, downloads during the install or on the first start.
 
 ```powershell
 cd desktop
-npm install
+npm ci
 npm start
 ```
 
@@ -51,22 +51,25 @@ Nothing here builds an exe, an installer or a signed app. The Windows app runs f
 
 When another app already owns Ctrl+Alt+C, Catch Up tries Ctrl+Shift+Space, then Ctrl+Alt+Space. The tray icon gets a yellow badge and its tooltip names the hotkey that is on. A held hotkey counts as one press.
 
+Windows reads AltGr as Ctrl+Alt. On Polish, Czech, Slovak and Hungarian keyboards AltGr+C types a character, so a global Ctrl+Alt+C would swallow it in every app. When Windows lists one of those languages, Catch Up starts on Ctrl+Shift+Space instead (then Ctrl+Alt+Space), shows the badge, and Settings in Full view says why. A hotkey you pick yourself in the tray or in Settings is always kept.
+
 The tray icon is a filled red dot while Catch Up is listening and a hollow ring when it is not. A yellow badge means something needs a look, such as a lost audio source or a hotkey that is taken.
 
 Drag the panel by its status row. It reopens where you left it.
 
 ## What stays on this computer
 
-Only the hotkey you picked and where you left the panel, in `%APPDATA%\Catch Up\catch-up-desktop.json`. The page keeps its own settings, such as the card language, in its local storage. The shell saves no audio, cards, transcripts or names.
+Only the hotkey, whether you picked it yourself, and where you left the panel, in `%APPDATA%\Catch Up\catch-up-desktop.json`. The page keeps its own settings, such as the card language, in its local storage. The shell saves no audio, cards, transcripts or names.
 
 ## Privacy and safety
 
 1. Use it openly. Tell the people around you and follow local rules. In class, ask the instructor or the disability office first.
-2. The panel always shows up in screen shares. The shell never calls `setContentProtection`.
-3. The window loads one origin, the one in `CATCHUP_URL`. Links to other https sites open in your browser, and every other page load or new window is blocked.
-4. The microphone, system audio and clipboard writes are allowed for that origin only. The camera and every other permission are refused.
-5. System audio uses Windows loopback with no share picker. The browser API also requires a video track, so the shell grants the page's own window as that track and the page can stop it. When the page adds the `restrictOwnAudio` constraint, Electron switches to process loopback on Windows 11, which hears every output device and leaves Catch Up's own sounds out.
-6. The page runs with context isolation and the sandbox on, and with no Node in the page. It reaches the shell only through `window.catchUpDesktop`.
+2. Quit Catch Up always quits, even with cards you did not export. Closing the window only hides it, and the page never blocks either one.
+3. The panel always shows up in screen shares. The shell never calls `setContentProtection`.
+4. The window loads one origin, the one in `CATCHUP_URL`. Links to other https sites open in your browser, and every other page load or new window is blocked.
+5. The microphone, system audio and clipboard writes are allowed for that origin only. The camera and every other permission are refused.
+6. System audio uses Windows loopback with no share picker. The browser API also requires a video track, so the shell grants the page's own window as that track and the page can stop it. When the page adds the `restrictOwnAudio` constraint, Electron switches to process loopback on Windows 11, which hears every output device and leaves Catch Up's own sounds out.
+7. The page runs with context isolation and the sandbox on, and with no Node in the page. It reaches the shell only through `window.catchUpDesktop`.
 
 ## Settings for testing
 
@@ -93,6 +96,8 @@ None of these have run in a live Electron process yet. The demo PC runs Windows 
 11. Drag the panel by its status row. Pick Show panel with focus in the tray, press Tab through the panel, then click another app. The panel stops taking focus again.
 12. Pick Full view in the tray. The window grows to 480 × 760 from the panel's corner and takes focus. Show panel brings the compact panel back to its spot.
 13. Stop the web app. The panel shows Can't reach Catch Up. Start the web app again. The panel comes back by itself within a few seconds, or press Retry.
+14. Get a card and do not export it, then pick Quit Catch Up in the tray. The app quits at once, with no prompt.
+15. On a first run, press Start listening in the compact panel. Full view opens with the setup sheet, and the name fields take typing.
 
 ## Tests
 

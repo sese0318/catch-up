@@ -1,7 +1,7 @@
 // The Panel (ux-spec 4). One component on every surface. The main page, the floating window, the
 // phone and the Windows app all render this, in the same order. Status row, memory bar, card
 // area (ask and say first), then the action bar with the window chips and the big button.
-import { useId, useRef, useState } from "react";
+import { Component, useId, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { CARD_LANGS, type CardLang } from "@/lib/card/schema";
 import { buttonMode, type ButtonMode } from "@/lib/client/button-mode";
 import {
@@ -17,13 +17,13 @@ import {
   hotkeyTaken,
   listeningLabel,
   memoryLabel,
+  noticeText,
   partialLabel,
   quietHint,
   sendingLabel,
   sendsLast,
   sourceChipName,
   sourceLostLabel,
-  warmingNotice,
   windowLabel,
 } from "@/lib/client/copy";
 import { acceleratorLabel, formatMemory } from "@/lib/client/format";
@@ -44,6 +44,7 @@ import { CardView } from "./CardView";
 import {
   ArrowUUpLeftIcon,
   ArrowsOutSimpleIcon,
+  CaretDownIcon,
   CheckIcon,
   InfoIcon,
   ListIcon,
@@ -270,14 +271,8 @@ function PanelNotices({ surface }: { surface: PanelSurface }) {
     );
   }
   if (notice) {
-    const text =
-      notice.kind === "not_listening"
-        ? UI.notListeningPress
-        : notice.kind === "warming_up"
-          ? warmingNotice(notice.secondsLeft ?? 1)
-          : notice.kind === "nothing_held"
-            ? UI.nothingHeld
-            : UI.unavailable;
+    // Screen readers hear this through the live region (the controller announces it).
+    const text = noticeText(notice.kind, notice.secondsLeft ?? 1);
     out.push(
       <Notice
         key={`notice-${notice.seq}`}
@@ -289,7 +284,7 @@ function PanelNotices({ surface }: { surface: PanelSurface }) {
           </button>
         }
       >
-        <span role="status">{text}</span>
+        {text}
       </Notice>,
     );
   }
@@ -338,11 +333,27 @@ function PanelNotices({ surface }: { surface: PanelSurface }) {
 
 function CardArea({ surface }: { surface: PanelSurface }) {
   const session = useSession();
+  const ref = useRef<HTMLDivElement>(null);
   const card = currentCard(session.core);
   const request = session.core.request;
   const busy = request.phase === "busy";
+  const busyId = busy ? request.pressId : null;
+  const currentId = session.core.currentId;
+
+  // A new press and a new card start at the top, so Asked you and the stall line are never cut off.
+  useLayoutEffect(() => {
+    const area = ref.current;
+    if (!area) return;
+    area.scrollTop = 0;
+    // On phones and short windows the page scrolls instead, so bring the panel top back into view.
+    const panel = area.closest<HTMLElement>(".cu-panel");
+    if (panel && area.getBoundingClientRect().top < 0 && typeof panel.scrollIntoView === "function") {
+      panel.scrollIntoView({ block: "start", behavior: "auto" });
+    }
+  }, [busyId, currentId]);
+
   return (
-    <div className="cu-card-area" data-busy={busy || undefined}>
+    <div className="cu-card-area" data-busy={busy || undefined} ref={ref}>
       <PanelNotices surface={surface} />
       <RequestView request={request} />
       {card ? (
@@ -356,43 +367,52 @@ function CardArea({ surface }: { surface: PanelSurface }) {
   );
 }
 
+/**
+ * The People here know tick, with the heads-up line folded behind Show heads-up so the card area
+ * keeps its room on phones and short screens. The line names the most a press can send.
+ */
 function ConsentRow({ compact }: { compact: boolean }) {
   const session = useSession();
   const { settings } = useSettings();
   const ctl = useController();
-  const [full, setFull] = useState(false);
-  const lineId = useId();
-  const line = headsUpText(settings.meetingLang, settings.windowSec);
+  const [open, setOpen] = useState(false);
+  const blockId = useId();
+  const line = headsUpText(settings.meetingLang);
   return (
     <div className="cu-consent" data-compact={compact || undefined}>
-      <div className="cu-consent-head">
-        <span className="cu-consent-title" lang="en">
-          {UI.tellPeople}
-        </span>
-        <CopyButton text={line} label={UI.copyForChat} compact />
+      <div className="cu-consent-row">
+        <label className="cu-check">
+          <input
+            id={CONSENT_ID}
+            type="checkbox"
+            checked={session.consent}
+            onChange={(e) => ctl.setConsent(e.target.checked)}
+          />
+          <span lang="en">{UI.consentLabel}</span>
+        </label>
+        <button
+          type="button"
+          className="cu-link-btn cu-heads-up-toggle"
+          aria-expanded={open}
+          aria-controls={blockId}
+          onClick={() => setOpen((v) => !v)}
+          lang="en"
+        >
+          <CaretDownIcon aria-hidden="true" className="cu-disclosure-caret" />
+          <span>{open ? UI.hideHeadsUp : UI.showHeadsUp}</span>
+        </button>
       </div>
-      <p id={lineId} className="cu-heads-up" data-clamp={!full || undefined} lang={tagOf(settings.meetingLang)}>
-        {line}
-      </p>
-      <button
-        type="button"
-        className="cu-link-btn cu-heads-up-more"
-        aria-expanded={full}
-        aria-controls={lineId}
-        onClick={() => setFull((v) => !v)}
-        lang="en"
-      >
-        {full ? UI.showLess : UI.showAll}
-      </button>
-      <label className="cu-check">
-        <input
-          id={CONSENT_ID}
-          type="checkbox"
-          checked={session.consent}
-          onChange={(e) => ctl.setConsent(e.target.checked)}
-        />
-        <span lang="en">{UI.consentLabel}</span>
-      </label>
+      <div id={blockId} className="cu-heads-up-block" hidden={!open}>
+        <div className="cu-consent-head">
+          <span className="cu-consent-title" lang="en">
+            {UI.tellPeople}
+          </span>
+          <CopyButton text={line} label={UI.copyForChat} compact />
+        </div>
+        <p className="cu-heads-up" lang={tagOf(settings.meetingLang)}>
+          {line}
+        </p>
+      </div>
     </div>
   );
 }
@@ -460,8 +480,9 @@ function BigButton({ surface }: { surface: PanelSurface }) {
         ctl.catchUp(at);
         return;
       case "cancel":
-        // A double click on Catch up must not cancel the press it just made.
-        if (request.phase === "busy" && now - request.pressedAt > 700) ctl.cancel();
+        // A double click on Catch up must not cancel the press it just made. Redos keep the first
+        // press time for their card, so this counts from when the attempt started.
+        if (request.phase === "busy" && now - request.startedAt > 700) ctl.cancel();
         return;
       case "start":
         if (mode.action === "resume" && session.consent && ctl.resume()) return;
@@ -552,7 +573,8 @@ function SecondaryRow({ surface }: { surface: PanelSurface }) {
       </button>,
     );
   }
-  if (surface === "phone") {
+  if (surface === "phone" && session.core.cards.length > 0) {
+    // Earlier opens this session's cards. With none yet it only takes room from the card area.
     items.push(
       <button key="earlier" type="button" className="cu-text-btn" onClick={() => ui.openSheet("history")} lang="en">
         {earlierLabel(session.core.cards.length)}
@@ -618,14 +640,44 @@ function LiveRegion() {
   );
 }
 
+/**
+ * Keeps keyboard focus in the panel. When the control that had focus goes away (Close, Esc in the
+ * card, Pause, Got it, or Further back once there is nothing older), focus moves to the big button
+ * instead of falling to the page body. getSnapshotBeforeUpdate reads the focused element before
+ * React removes anything, so this works without focus events (which a background window skips).
+ */
+class FocusKeeper extends Component<{ panel: RefObject<HTMLElement | null>; version: unknown }> {
+  getSnapshotBeforeUpdate(): Element | null {
+    const panel = this.props.panel.current;
+    const active = panel?.ownerDocument.activeElement ?? null;
+    return panel && active && active !== panel && panel.contains(active) ? active : null;
+  }
+
+  componentDidUpdate(_props: unknown, _state: unknown, focused: Element | null): void {
+    const panel = this.props.panel.current;
+    if (!focused || focused.isConnected || !panel) return;
+    const doc = panel.ownerDocument;
+    const active = doc.activeElement;
+    if (active && active !== doc.body) return; // focus already went somewhere on purpose
+    panel.querySelector<HTMLElement>(".cu-big")?.focus();
+  }
+
+  render(): null {
+    return null;
+  }
+}
+
 export function Panel({ surface }: { surface: PanelSurface }) {
+  const session = useSession();
+  const ref = useRef<HTMLElement>(null);
   return (
-    <section className="cu-panel" data-surface={surface} aria-label={UI.appName} lang="en">
+    <section ref={ref} className="cu-panel" data-surface={surface} aria-label={UI.appName} lang="en">
       <StatusRow surface={surface} />
       <MemoryBar />
       <CardArea surface={surface} />
       <ActionBar surface={surface} />
       <LiveRegion />
+      <FocusKeeper panel={ref} version={session} />
     </section>
   );
 }

@@ -147,6 +147,13 @@ a {
   flex-direction: column;
 }
 
+/* The server renders the web layout. On a phone or in the Windows app the boot script in
+   layout.tsx marks the page, so that layout never flashes before the right one renders. */
+html[data-boot="phone"] .cu-app:not([data-layout="phone"]),
+html[data-boot="app"] .cu-app:not([data-layout^="app"]) {
+  visibility: hidden;
+}
+
 .cu-header {
   height: 56px;
   flex: none;
@@ -231,7 +238,6 @@ a {
   }
 }
 
-.cu-app[data-layout="phone"],
 .cu-app[data-layout="app-compact"] {
   height: 100dvh;
   min-height: 0;
@@ -267,6 +273,10 @@ a {
 }
 .cu-footer p {
   margin: 0;
+}
+.cu-footer .cu-link-btn,
+.cu-landing-foot .cu-link-btn {
+  min-height: 44px;
 }
 .cu-built-with {
   color: var(--cu-text);
@@ -745,8 +755,8 @@ a {
   color: var(--cu-muted);
 }
 .cu-source-chip {
-  min-height: 32px;
-  padding: 0 8px;
+  min-height: 44px;
+  padding: 0 12px;
   border-radius: var(--cu-radius);
   border: 1px solid var(--cu-border-strong);
   background: var(--cu-surface);
@@ -768,7 +778,7 @@ a {
   white-space: nowrap;
 }
 .cu-lang-select select {
-  min-height: 36px;
+  min-height: 44px;
   padding: 0 8px;
   border-radius: var(--cu-radius);
   border: 1px solid var(--cu-border-strong);
@@ -975,11 +985,36 @@ a {
 .cu-consent {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 4px;
+  padding: 2px 12px;
   border-radius: var(--cu-radius);
   border: 1px solid var(--cu-border);
   background: var(--cu-surface-2);
+}
+.cu-consent-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0 8px;
+}
+.cu-consent-row .cu-check {
+  flex: 1 1 auto;
+}
+.cu-heads-up-toggle {
+  min-height: 44px;
+  font-size: 0.875rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.cu-heads-up-toggle svg {
+  transition: transform var(--cu-fast) ease;
+}
+.cu-heads-up-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 10px;
 }
 .cu-consent-head {
   display: flex;
@@ -994,18 +1029,6 @@ a {
 .cu-heads-up {
   margin: 0;
   font-size: 0.875rem;
-}
-.cu-heads-up[data-clamp] {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.cu-heads-up-more {
-  align-self: flex-start;
-  min-height: 24px;
-  font-size: 0.8125rem;
-  margin-top: -4px;
 }
 
 /* Request states */
@@ -1031,6 +1054,9 @@ a {
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.45;
+}
+.cu-stall-line:is(:lang(ja), :lang(zh-Hans)) {
+  line-height: 1.7;
 }
 .cu-stage {
   display: flex;
@@ -1167,6 +1193,9 @@ a {
   font-weight: 700;
   line-height: 1.45;
 }
+.cu-ask-text:is(:lang(ja), :lang(zh-Hans)) {
+  line-height: 1.7;
+}
 .cu-ask-by,
 .cu-ask-quote {
   display: flex;
@@ -1233,6 +1262,9 @@ a {
   font-size: 1.25rem;
   font-weight: 700;
   line-height: 1.45;
+}
+.cu-say-text:is(:lang(ja), :lang(zh-Hans)) {
+  line-height: 1.7;
 }
 .cu-say-gloss {
   margin: 0;
@@ -1958,16 +1990,9 @@ a {
   border-radius: 0;
 }
 .cu-panel[data-surface="pip"] .cu-status {
-  min-height: 32px;
-  gap: 8px;
-  padding: 0 4px 0 8px;
-}
-.cu-panel[data-surface="pip"] .cu-icon-btn {
-  width: 32px;
-  height: 32px;
-}
-.cu-panel[data-surface="pip"] .cu-lang-select select {
-  min-height: 28px;
+  min-height: 44px;
+  gap: 4px;
+  padding: 0 0 0 8px;
 }
 .cu-panel[data-surface="pip"] :is(.cu-mem-saved, .cu-mem-word),
 .cu-panel[data-surface="app-compact"] .cu-mem-saved {
@@ -2019,7 +2044,8 @@ a {
 @container pip (max-height: 279px) {
   .cu-panel[data-surface="pip"] :is(
       .cu-membar,
-      .cu-card-head,
+      .cu-card-title,
+      .cu-card-tools,
       .cu-summary,
       .cu-facts,
       .cu-evidence,
@@ -2048,21 +2074,28 @@ a {
 /* Windows app compact panel, 360 x 480, never takes focus */
 
 .cu-panel[data-surface="app-compact"] .cu-status {
-  min-height: 40px;
-  padding: 0 4px 0 12px;
-}
-.cu-panel[data-surface="app-compact"] .cu-icon-btn {
-  width: 36px;
-  height: 36px;
+  min-height: 44px;
+  gap: 0 4px;
+  padding: 0 0 0 12px;
 }
 
 /* Phone, 480 px and narrower, portrait first */
 
 .cu-panel[data-surface="phone"] {
-  height: 100dvh;
-  min-height: 0;
+  height: auto;
+  min-height: 100dvh;
   border: 0;
   border-radius: 0;
+  overflow: clip;
+}
+.cu-panel[data-surface="phone"] .cu-card-area {
+  flex: 1 0 auto;
+  overflow: visible;
+}
+.cu-panel[data-surface="phone"] .cu-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
 }
 .cu-panel[data-surface="phone"] .cu-status {
   min-height: 48px;
@@ -2107,6 +2140,28 @@ a {
   .cu-chips-big .cu-chip {
     min-width: 0;
     flex: 1;
+  }
+}
+
+/* Short windows (a rotated phone, a small laptop). The 560 px panel would push Catch up below the
+   fold, so the page scrolls and the action bar stays at the bottom of the window. */
+@media (max-height: 640px) {
+  .cu-app[data-layout="web"] .cu-col-panel {
+    position: static;
+  }
+  .cu-app[data-layout="web"] .cu-panel {
+    height: auto;
+    min-height: 0;
+    overflow: clip;
+  }
+  .cu-app[data-layout="web"] .cu-card-area {
+    flex: none;
+    overflow: visible;
+  }
+  .cu-app[data-layout="web"] .cu-action-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
   }
 }
 

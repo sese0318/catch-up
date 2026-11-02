@@ -30,6 +30,30 @@ describe("press guards", () => {
     expect(guards.dailyCapReached(T0 + 31 * MIN, 2)).toBe(false);
   });
 
+  it("admits a press only while both limits allow it, counting it in the same step", () => {
+    const guards = createPressGuards();
+    expect(guards.admit("a", T0, 2, 3)).toEqual({ ok: true });
+    expect(guards.admit("a", T0, 2, 3)).toEqual({ ok: true });
+    expect(guards.admit("a", T0, 2, 3)).toEqual({ ok: false, code: "rate_limited", retryAfterSec: 3_600 });
+    expect(guards.admit("b", T0, 2, 3)).toEqual({ ok: true });
+    expect(guards.admit("c", T0, 2, 3)).toEqual({ ok: false, code: "daily_cap" });
+  });
+
+  it("holds at most the given number of presses in flight per client", () => {
+    const guards = createPressGuards();
+    const one = guards.enter("a", 2);
+    const two = guards.enter("a", 2);
+    expect(one).not.toBeNull();
+    expect(two).not.toBeNull();
+    expect(guards.enter("a", 2)).toBeNull();
+    expect(guards.enter("b", 2)).not.toBeNull();
+    one?.();
+    one?.(); // a second release changes nothing
+    const three = guards.enter("a", 2);
+    expect(three).not.toBeNull();
+    expect(guards.enter("a", 2)).toBeNull();
+  });
+
   it("starts clean after reset", () => {
     const guards = createPressGuards();
     guards.count("a", T0, 1);
