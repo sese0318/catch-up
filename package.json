@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "eval": "tsx eval/run.ts"
+    "eval": "tsx eval/run.ts",
+    "check:copy": "tsx scripts/check-copy.ts",
+    "clips": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/make-synthetic-clips.ps1"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

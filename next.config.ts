@@ -10,7 +10,10 @@ const nextConfig: NextConfig = {
   },
   turbopack: {
     rules: {
+      // Tailwind compiles only the app's own CSS. next/font's generated CSS (a Next internal) must
+      // skip it, or next dev fails to resolve the font URLs.
       "*.css": {
+        condition: { not: "foreign" },
         loaders: ["@tailwindcss/turbopack"],
         as: "*.css",
       },

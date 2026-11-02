@@ -4,7 +4,14 @@
 // buildAsrRequest and META_ASR, then muse-spark-1.3 with a MetaChatBody built with ROUTE_A and
 // META_RESPONSE_FORMAT. mock serves mockCardBody with the timings of ux-spec 7 Modes 3.
 import type { RoutePreference } from "../protocol";
-import type { CardProvider, ProviderId, ServerEnv } from "./types";
+import { createMetaApiProvider } from "./meta-api";
+import { createMockProvider } from "./mock";
+import { createOpenWeightsProvider } from "./open-weights";
+import { AUTO_POLICY, type CardProvider, type ProviderId, type ServerEnv } from "./types";
+
+export { createMetaApiProvider } from "./meta-api";
+export { createMockProvider, isMockProvider, MOCK_MODEL } from "./mock";
+export { createOpenWeightsProvider } from "./open-weights";
 
 export type RoutePlan =
   | { ok: true; routes: ProviderId[]; pinned: boolean }
@@ -12,8 +19,11 @@ export type RoutePlan =
 
 /** One provider per id, built from env. Never reads process.env directly. */
 export function createProviders(env: ServerEnv): Record<ProviderId, CardProvider> {
-  void env;
-  throw new Error("not implemented");
+  return {
+    open_weights: createOpenWeightsProvider(env),
+    meta_api: createMetaApiProvider(env),
+    mock: createMockProvider(env),
+  };
 }
 
 /**
@@ -27,8 +37,16 @@ export function planRoutes(
   env: ServerEnv,
   providers: Record<ProviderId, CardProvider>,
 ): RoutePlan {
-  void preference;
-  void env;
-  void providers;
-  throw new Error("not implemented");
+  const route = preference === "auto" ? env.routePolicy : preference;
+  if (route === "mock") {
+    return env.allowMock && providers.mock.isConfigured()
+      ? { ok: true, routes: ["mock"], pinned: true }
+      : { ok: false, code: "mock_refused" };
+  }
+  if (!env.liveEnabled) return { ok: false, code: "live_off" };
+  if (route === "auto") {
+    const routes = AUTO_POLICY.order.filter((id) => providers[id].isConfigured());
+    return routes.length > 0 ? { ok: true, routes, pinned: false } : { ok: false, code: "not_configured" };
+  }
+  return providers[route].isConfigured() ? { ok: true, routes: [route], pinned: true } : { ok: false, code: "not_configured" };
 }

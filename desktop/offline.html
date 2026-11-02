@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-tVll2Hz/9logwP7+B/M0toA8B/6KEkGaHMlFjDqOxiI='; connect-src http: https:; base-uri 'none'; form-action 'none'">
+<title>Catch Up</title>
+<style>
+  :root {
+    --bg: #FAFAF7;
+    --text: #1B1B1F;
+    --muted: #55555F;
+    --line: #DEDED8;
+    --accent: #0F766E;
+    --on-accent: #FFFFFF;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121316;
+      --text: #F2F2EF;
+      --muted: #A1A1AA;
+      --line: #2E3036;
+      --accent: #2DD4BF;
+      --on-accent: #121316;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font: 1rem/1.5 "Noto Sans JP", "Segoe UI", system-ui, sans-serif;
+  }
+  header {
+    app-region: drag;
+    -webkit-app-region: drag;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.9375rem;
+    font-weight: 600;
+  }
+  .dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--muted); }
+  main { flex: 1; overflow: auto; padding: 24px 16px 16px; }
+  h1 { margin: 0 0 8px; font-size: 1.25rem; line-height: 1.4; font-weight: 600; }
+  p { margin: 0 0 16px; }
+  .muted { color: var(--muted); font-size: 0.9375rem; }
+  code { font: 0.8125rem/1.5 Consolas, "Cascadia Mono", monospace; overflow-wrap: anywhere; }
+  footer { display: flex; gap: 8px; padding: 16px; border-top: 1px solid var(--line); }
+  button {
+    app-region: no-drag;
+    -webkit-app-region: no-drag;
+    min-height: 48px;
+    min-width: 44px;
+    padding: 0 16px;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  button:disabled { cursor: default; opacity: 0.6; }
+  .secondary { background: transparent; color: var(--text); border: 1px solid var(--muted); }
+  .primary { flex: 1; background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent); }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  @media (forced-colors: active) {
+    button, .dot { border: 1px solid ButtonText; }
+  }
+</style>
+</head>
+<body>
+<header><span class="dot" aria-hidden="true"></span><span>Catch Up</span></header>
+<main>
+  <h1>Can't reach Catch Up</h1>
+  <p id="reason">Start the web app or check your connection, then press Retry.</p>
+  <p class="muted">Trying <code id="target"></code></p>
+</main>
+<footer>
+  <button type="button" class="secondary" id="hide">Hide</button>
+  <button type="button" class="primary" id="retry">Retry</button>
+</footer>
+<script>
+(() => {
+  'use strict'
+  const REASONS = {
+    offline: 'Start the web app or check your connection, then press Retry.',
+    crashed: 'The page stopped working. Press Retry to load it again.',
+    redirect: 'The web app sent this window to another site, which the app does not open. Check CATCHUP_URL, then press Retry.'
+  }
+  const params = new URLSearchParams(location.search)
+  const reason = Object.prototype.hasOwnProperty.call(REASONS, params.get('reason')) ? params.get('reason') : 'offline'
+  const target = safeTarget(params.get('url'))
+  const retryButton = document.getElementById('retry')
+
+  function safeTarget (value) {
+    try {
+      const url = new URL(value)
+      return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null
+    } catch {
+      return null
+    }
+  }
+
+  function retry () {
+    if (target) location.replace(target)
+  }
+
+  document.getElementById('reason').textContent = REASONS[reason]
+  document.getElementById('target').textContent = target || 'no address'
+  retryButton.disabled = !target
+  retryButton.addEventListener('click', retry)
+  document.getElementById('hide').addEventListener('click', () => {
+    const bridge = window.catchUpDesktop
+    if (bridge && typeof bridge.hideWindow === 'function') bridge.hideWindow().catch(() => {})
+  })
+  window.addEventListener('online', retry)
+
+  // While the app is only offline, check quietly and come back by itself once it answers.
+  let attempts = 0
+  async function probe () {
+    attempts += 1
+    try {
+      await fetch(target, { mode: 'no-cors', cache: 'no-store' })
+      retry()
+    } catch {
+      setTimeout(probe, attempts < 15 ? 4000 : 15000)
+    }
+  }
+  if (target && reason === 'offline') setTimeout(probe, 4000)
+})()
+</script>
+</body>
+</html>

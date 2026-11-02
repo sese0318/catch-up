@@ -7,15 +7,18 @@
 // When a sample finishes, status stays listening with endedAt set and the ring keeps the clip, so
 // a press still works, until a new start(), pause() or LIMITS.snapshotHoldMs later (paused with
 // reason sample_ended, memory zeroed).
-import type { CaptureEngine, CaptureEngineOptions, CaptureSupport } from "./types";
+// The logic lives in capture.ts behind a CaptureEnv seam (env.ts), so it is tested with fakes.
+import { CaptureEngineCore } from "./capture";
+import { browserCaptureEnv } from "./env";
+import { readBrowserSupport } from "./support";
+import { getDesktopBridge, type CaptureEngine, type CaptureEngineOptions, type CaptureSupport } from "./types";
 
 /** Creates an idle engine. Nothing is requested from the browser until start(). */
 export function createCaptureEngine(options?: CaptureEngineOptions): CaptureEngine {
-  void options;
-  throw new Error("not implemented");
+  return new CaptureEngineCore(browserCaptureEnv, options);
 }
 
 /** Feature check for the source step. Safe during server rendering (returns all false). */
 export function getCaptureSupport(): CaptureSupport {
-  throw new Error("not implemented");
+  return readBrowserSupport(getDesktopBridge() !== null);
 }

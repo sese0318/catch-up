@@ -1,0 +1,505 @@
+{
+  "version": 1,
+  "about": "Scripts and gold labels for the Catch Up eval and the sample clips. Names, companies and places are fictional. scripts/make-synthetic-clips.ps1 reads this file to make synthetic dev clips. Consenting voices read the same scripts for the real recordings.",
+  "referenceTime": "2026-11-02T10:30:00.000-05:00",
+  "tz": "America/New_York",
+  "voices": {
+    "en-f": { "name": "Microsoft Zira Desktop", "lang": "en", "rate": 0, "pitch": 1 },
+    "en-f-fast": { "name": "Microsoft Zira Desktop", "lang": "en", "rate": 2, "pitch": 1.07 },
+    "en-m": { "name": "Microsoft David Desktop", "lang": "en", "rate": 0, "pitch": 1 },
+    "en-m-slow": { "name": "Microsoft David Desktop", "lang": "en", "rate": -1, "pitch": 0.94 },
+    "ja-f": { "name": "Microsoft Haruka Desktop", "lang": "ja", "rate": 0, "pitch": 1 },
+    "zh-f": { "name": "Microsoft Huihui Desktop", "lang": "zh", "rate": 0, "pitch": 1 },
+    "zh-f-low": { "name": "Microsoft Huihui Desktop", "lang": "zh", "rate": -1, "pitch": 0.9 }
+  },
+  "clips": [
+    {
+      "id": "en-ask-by-name",
+      "use": "eval",
+      "scene": "English ask by name in an online meeting",
+      "source": "tab",
+      "meetingLang": "en",
+      "cardLang": "en",
+      "spokenLangs": ["en"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 27,
+      "effect": "call",
+      "noise": { "kind": "room", "snrDb": 35 },
+      "lines": [
+        {
+          "speaker": "Marcus",
+          "voice": "en-m",
+          "lang": "en",
+          "text": "Okay, let's wrap up. The pricing sheet from Tomas is final, and Nordvale signed off on the pilot."
+        },
+        { "speaker": "Lena", "voice": "en-f-fast", "lang": "en", "text": "Nice. They also asked for a live demo before the contract goes out." },
+        { "speaker": "Marcus", "voice": "en-m", "lang": "en", "text": "Right. They can't do Friday, so it has to be this week or early next week." },
+        { "speaker": "Lena", "voice": "en-f-fast", "lang": "en", "text": "I can have the build ready by Wednesday night." },
+        { "speaker": "Marcus", "voice": "en-m", "lang": "en", "text": "So Maya, does Thursday work for the client demo, or should we push it to Monday?" }
+      ],
+      "gold": {
+        "askTo": "you",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [
+          { "text": "Tomas", "alts": ["Thomas", "Tomás", "Tomasz", "トマス", "托马斯"] },
+          { "text": "Nordvale", "alts": ["Nordvail", "Nordville", "Nord Vale", "ノードベール", "ノルドヴェイル"] }
+        ],
+        "numbers": [],
+        "dates": [{ "date": "2026-11-05", "said": "Thursday" }, { "date": "2026-11-09", "said": "Monday" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "en-open-question",
+      "use": "eval",
+      "scene": "Open question to the room in an online meeting",
+      "source": "tab",
+      "meetingLang": "en",
+      "cardLang": "zh",
+      "spokenLangs": ["en"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 22,
+      "effect": "call",
+      "noise": { "kind": "room", "snrDb": 35 },
+      "lines": [
+        { "speaker": "Dana", "voice": "en-f", "lang": "en", "text": "Thanks for joining, everyone. Quick check on the October survey." },
+        {
+          "speaker": "Owen",
+          "voice": "en-m-slow",
+          "lang": "en",
+          "text": "We closed it last night with three hundred and twelve responses, which is more than we planned for."
+        },
+        { "speaker": "Dana", "voice": "en-f", "lang": "en", "text": "That's great. Priya needs a short summary before the board call on Friday." },
+        { "speaker": "Dana", "voice": "en-f", "lang": "en", "text": "Does anyone have time to write it up today?" }
+      ],
+      "gold": {
+        "askTo": "room",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [{ "text": "Priya", "alts": ["Pria", "Preeya", "プリヤ", "普丽雅", "普里亚"] }],
+        "numbers": [{ "value": 312, "said": "three hundred and twelve" }],
+        "dates": [{ "date": "2026-11-06", "said": "Friday" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "en-mention",
+      "use": "eval",
+      "scene": "The listener is mentioned without a question",
+      "source": "tab",
+      "meetingLang": "en",
+      "cardLang": "ja",
+      "spokenLangs": ["en"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 25,
+      "effect": "call",
+      "noise": { "kind": "room", "snrDb": 35 },
+      "lines": [
+        { "speaker": "Marcus", "voice": "en-m", "lang": "en", "text": "Morning, everyone. Before we get to the roadmap, a couple of quick things." },
+        { "speaker": "Marcus", "voice": "en-m", "lang": "en", "text": "Quick update from the design side." },
+        {
+          "speaker": "Marcus",
+          "voice": "en-m",
+          "lang": "en",
+          "text": "The onboarding flow is done, and Maya's mockups made the review with Henrik a lot faster."
+        },
+        { "speaker": "Lena", "voice": "en-f-fast", "lang": "en", "text": "Love that. So what does that mean for the launch?" },
+        {
+          "speaker": "Marcus",
+          "voice": "en-m",
+          "lang": "en",
+          "text": "We're moving the launch to the nineteenth, and the budget stays at forty-two thousand dollars."
+        }
+      ],
+      "gold": {
+        "askTo": "mentioned",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [{ "text": "Henrik", "alts": ["Hendrik", "Henrick", "ヘンリック", "ヘンリク", "亨里克"] }],
+        "numbers": [{ "value": 42000, "said": "forty-two thousand dollars" }],
+        "dates": [{ "date": "2026-11-19", "said": "the nineteenth" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "ja-lecture-term",
+      "use": "eval",
+      "scene": "Japanese lecture with a term",
+      "source": "mic",
+      "meetingLang": "ja",
+      "cardLang": "en",
+      "spokenLangs": ["ja"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 29,
+      "effect": "room",
+      "noise": { "kind": "room", "snrDb": 30 },
+      "lines": [
+        { "speaker": "Lecturer", "voice": "ja-f", "lang": "ja", "text": "では、今日のテーマの機会費用に入ります。" },
+        { "speaker": "Lecturer", "voice": "ja-f", "lang": "ja", "text": "機会費用というのは、何かを選んだときに、あきらめた選択肢から得られたはずの価値のことです。" },
+        { "speaker": "Lecturer", "voice": "ja-f", "lang": "ja", "text": "たとえば、アルバイトを休んで三時間勉強したなら、その三時間で稼げた三千六百円が機会費用です。" },
+        { "speaker": "Lecturer", "voice": "ja-f", "lang": "ja", "text": "レポートは来週の水曜日までに提出してください。" },
+        { "speaker": "Lecturer", "voice": "ja-f", "lang": "ja", "text": "では、機会費用の身近な例を思いつく人はいますか？" }
+      ],
+      "gold": {
+        "askTo": "room",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "ja",
+        "names": [],
+        "numbers": [{ "value": 3600, "said": "三千六百円" }],
+        "dates": [{ "date": "2026-11-11", "said": "来週の水曜日" }],
+        "terms": [{ "text": "機会費用", "alts": ["opportunity cost", "きかいひよう", "机会成本"] }]
+      }
+    },
+    {
+      "id": "zh-ask-time",
+      "use": "eval",
+      "scene": "Mandarin exchange with a time",
+      "source": "mic",
+      "meetingLang": "zh",
+      "cardLang": "ja",
+      "spokenLangs": ["zh"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 22,
+      "effect": "room",
+      "noise": { "kind": "room", "snrDb": 30 },
+      "lines": [
+        { "speaker": "Zhou", "voice": "zh-f-low", "lang": "zh", "text": "王磊，周报写完了吗？" },
+        { "speaker": "Wang Lei", "voice": "zh-f", "lang": "zh", "text": "还差一点，今天晚上发给你。" },
+        { "speaker": "Zhou", "voice": "zh-f-low", "lang": "zh", "text": "好的。对了，明天的会改到下午三点半了，在三楼的小会议室。" },
+        { "speaker": "Zhou", "voice": "zh-f-low", "lang": "zh", "text": "玛雅，你明天下午三点半能来参加吗？" }
+      ],
+      "gold": {
+        "askTo": "you",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "zh",
+        "names": [{ "text": "王磊", "alts": ["Wang Lei", "王雷", "王蕾", "ワン・レイ", "ワンレイ", "王さん"] }],
+        "numbers": [],
+        "dates": [{ "date": "2026-11-03", "time": "15:30", "said": "明天下午三点半" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "mixed-three-languages",
+      "use": "eval",
+      "scene": "English, Japanese and Chinese in one meeting",
+      "source": "tab",
+      "meetingLang": "en",
+      "cardLang": "ja",
+      "spokenLangs": ["en", "ja", "zh"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 25,
+      "effect": "call",
+      "noise": { "kind": "room", "snrDb": 35 },
+      "lines": [
+        { "speaker": "Dana", "voice": "en-f", "lang": "en", "text": "Okay, so for the joint presentation, where are we?" },
+        {
+          "speaker": "Marcus",
+          "voice": "en-m",
+          "lang": "en",
+          "text": "The 締め切り moved to 下周三, and 陈老师 said 不要迟到.",
+          "tts": [["en-m", "The"], ["ja-f", "締め切り"], ["en-m", "moved to"], ["zh-f", "下周三"], ["en-m", "and"], ["zh-f", "陈老师"], ["en-m", "said"], ["zh-f", "不要迟到"]]
+        },
+        { "speaker": "Aoi", "voice": "ja-f", "lang": "ja", "text": "了解です。じゃあ、スライドは健太さんにお願いしましょう。" },
+        { "speaker": "Xiaoyu", "voice": "zh-f", "lang": "zh", "text": "好，我来准备数据部分。" },
+        { "speaker": "Aoi", "voice": "ja-f", "lang": "ja", "text": "あと、教室の予約、誰かできますか？" }
+      ],
+      "gold": {
+        "askTo": "room",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "ja",
+        "names": [{ "text": "陈老师", "alts": ["陈", "陳", "Chen", "チェン"] }, { "text": "健太", "alts": ["Kenta", "けんた", "ケンタ"] }],
+        "numbers": [],
+        "dates": [{ "date": "2026-11-11", "said": "下周三" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "en-lecture-far",
+      "use": "eval",
+      "scene": "Far-field lecture with a date and teen numbers",
+      "source": "mic",
+      "meetingLang": "en",
+      "cardLang": "en",
+      "spokenLangs": ["en"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "pressedAt": "2026-11-05T13:15:00.000-05:00",
+      "durationSec": 23,
+      "effect": "far",
+      "noise": { "kind": "room", "snrDb": 16 },
+      "lines": [
+        { "speaker": "Professor", "voice": "en-m-slow", "lang": "en", "text": "Alright, let's pick up where we left off with supply and demand." },
+        {
+          "speaker": "Professor",
+          "voice": "en-m-slow",
+          "lang": "en",
+          "text": "Before I forget, the quiz is next Wednesday, and it covers chapters thirteen through sixteen."
+        },
+        { "speaker": "Professor", "voice": "en-m-slow", "lang": "en", "text": "It's worth fifteen percent of your final grade, so please don't skip it." },
+        { "speaker": "Professor", "voice": "en-m-slow", "lang": "en", "text": "Any questions about the quiz before we move on?" }
+      ],
+      "gold": {
+        "askTo": "room",
+        "heard": ["clear", "partial", "poor"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [],
+        "numbers": [
+          { "value": 15, "said": "fifteen percent", "confusable": true },
+          { "value": 13, "said": "thirteen", "confusable": true },
+          { "value": 16, "said": "sixteen", "confusable": true }
+        ],
+        "dates": [{ "date": "2026-11-11", "said": "next Wednesday" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "en-office-hours",
+      "use": "eval",
+      "scene": "Office hours with names, in person",
+      "source": "mic",
+      "meetingLang": "en",
+      "cardLang": "ja",
+      "spokenLangs": ["en"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 24,
+      "effect": "room",
+      "noise": { "kind": "room", "snrDb": 30 },
+      "lines": [
+        {
+          "speaker": "Professor Adeyemi",
+          "voice": "en-f",
+          "lang": "en",
+          "text": "Hi, come on in. I'm Professor Adeyemi, and this is Joaquin, he grades the papers for this section.",
+          "tts": [["en-f", "Hi, come on in. I'm Professor Adeyemi, and this is Wah-keen, he grades the papers for this section."]]
+        },
+        { "speaker": "Professor Adeyemi", "voice": "en-f", "lang": "en", "text": "Thanks for coming by, I know the prompt for the paper was a little vague." },
+        {
+          "speaker": "Professor Adeyemi",
+          "voice": "en-f",
+          "lang": "en",
+          "text": "The draft should be about two thousand words, and it's due on the twentieth."
+        },
+        { "speaker": "Professor Adeyemi", "voice": "en-f", "lang": "en", "text": "So, what topic are you thinking about for your paper?" }
+      ],
+      "gold": {
+        "askTo": "you",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [
+          { "text": "Adeyemi", "alts": ["Adeyemmi", "Adayemi", "Adeyami", "アデイェミ", "アデイエミ", "アデエミ", "阿德耶米"] },
+          { "text": "Joaquin", "alts": ["Joaquín", "Wakeen", "Waqueen", "Joakeen", "ホアキン", "ワキーン", "华金"] }
+        ],
+        "numbers": [{ "value": 2000, "said": "two thousand words" }],
+        "dates": [{ "date": "2026-11-20", "said": "the twentieth" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "en-cafe-noisy",
+      "use": "eval",
+      "scene": "Noisy cafe, in person",
+      "source": "mic",
+      "meetingLang": "en",
+      "cardLang": "en",
+      "spokenLangs": ["en"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 24,
+      "effect": "none",
+      "noise": { "kind": "cafe", "snrDb": 5 },
+      "lines": [
+        { "speaker": "Leo", "voice": "en-m", "lang": "en", "text": "Wow, this place is packed today." },
+        { "speaker": "Ana", "voice": "en-f-fast", "lang": "en", "text": "I know, I could barely find a table." },
+        { "speaker": "Ana", "voice": "en-f-fast", "lang": "en", "text": "Did you order yet? The cold brew here is really good." },
+        { "speaker": "Leo", "voice": "en-m", "lang": "en", "text": "Not yet, I'll grab one in a minute." },
+        { "speaker": "Leo", "voice": "en-m", "lang": "en", "text": "So Maya, are you still coming to the hackathon on Saturday?" },
+        { "speaker": "Leo", "voice": "en-m", "lang": "en", "text": "Registration closes at nine tonight." }
+      ],
+      "gold": {
+        "askTo": "you",
+        "heard": ["clear", "partial", "poor"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [],
+        "numbers": [],
+        "dates": [{ "date": "2026-11-07", "said": "Saturday" }, { "date": "2026-11-02", "time": "21:00", "said": "nine tonight" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "en-small-talk",
+      "use": "eval",
+      "scene": "Small talk with no ask for the listener",
+      "source": "mic",
+      "meetingLang": "en",
+      "cardLang": "zh",
+      "spokenLangs": ["en"],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 22,
+      "effect": "room",
+      "noise": { "kind": "room", "snrDb": 30 },
+      "lines": [
+        { "speaker": "Jo", "voice": "en-m", "lang": "en", "text": "Hey Rosa, how was the trip?" },
+        { "speaker": "Rosa", "voice": "en-f-fast", "lang": "en", "text": "Oh, it was great. We drove up to the lake and the leaves were all orange." },
+        { "speaker": "Jo", "voice": "en-m", "lang": "en", "text": "That sounds amazing. Did you get to try that bakery Felix kept talking about?" },
+        { "speaker": "Rosa", "voice": "en-f-fast", "lang": "en", "text": "We did, and the cinnamon rolls were huge. I'll send you the photos later." },
+        { "speaker": "Jo", "voice": "en-m", "lang": "en", "text": "Nice, I'm so jealous." }
+      ],
+      "gold": {
+        "askTo": "none",
+        "heard": ["clear", "partial"],
+        "say": "any",
+        "sayLang": "en",
+        "names": [{ "text": "Rosa", "alts": ["ロサ", "ローザ", "罗莎"] }, { "text": "Felix", "alts": ["Félix", "フェリックス", "费利克斯"] }],
+        "numbers": [],
+        "dates": [],
+        "terms": []
+      }
+    },
+    {
+      "id": "control-noise-only",
+      "use": "control",
+      "scene": "Cafe noise with no speech",
+      "source": "mic",
+      "meetingLang": "en",
+      "cardLang": "en",
+      "spokenLangs": [],
+      "listener": ["Maya", "マヤ", "玛雅"],
+      "durationSec": 20,
+      "effect": "none",
+      "noise": { "kind": "noise", "snrDb": 0 },
+      "lines": [],
+      "gold": { "askTo": "none", "heard": ["none", "poor"], "say": "any", "names": [], "numbers": [], "dates": [], "terms": [] }
+    },
+    {
+      "id": "sample-ask-by-name",
+      "use": "sample",
+      "scene": "An English ask by name",
+      "source": "sample",
+      "meetingLang": "en",
+      "cardLang": "en",
+      "spokenLangs": ["en"],
+      "listener": ["Sam", "サム", "萨姆"],
+      "durationSec": 18,
+      "effect": "call",
+      "noise": { "kind": "room", "snrDb": 35 },
+      "lines": [
+        { "speaker": "Marcus", "voice": "en-m", "lang": "en", "text": "Okay, last thing before we wrap up. The client wants a live demo this week." },
+        { "speaker": "Lena", "voice": "en-f", "lang": "en", "text": "I can prep the slides, but I'm out on Friday." },
+        { "speaker": "Marcus", "voice": "en-m", "lang": "en", "text": "Sam, does Thursday work for the demo, or should we push it to Monday?" }
+      ],
+      "sample": {
+        "title": "An English ask by name",
+        "blurb": "A teammate asks Sam to pick a day for the demo.",
+        "muffleLine": 2,
+        "pressAfterLine": 2,
+        "muffle": { "startSec": 11.6, "endSec": 16.7 },
+        "keyMomentSec": 16.7
+      },
+      "gold": {
+        "askTo": "you",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [],
+        "numbers": [],
+        "dates": [{ "date": "2026-11-05", "said": "Thursday" }, { "date": "2026-11-09", "said": "Monday" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "sample-three-languages",
+      "use": "sample",
+      "scene": "English, Japanese and Chinese in one talk",
+      "source": "sample",
+      "meetingLang": "en",
+      "cardLang": "ja",
+      "spokenLangs": ["en", "ja", "zh"],
+      "listener": ["Sam", "サム", "萨姆"],
+      "durationSec": 23,
+      "effect": "call",
+      "noise": { "kind": "room", "snrDb": 35 },
+      "lines": [
+        { "speaker": "Dana", "voice": "en-f", "lang": "en", "text": "Okay, quick check on the group project." },
+        {
+          "speaker": "Marcus",
+          "voice": "en-m",
+          "lang": "en",
+          "text": "So the 締め切り is 下周三, right?",
+          "tts": [["en-m", "So the"], ["ja-f", "締め切り"], ["en-m", "is"], ["zh-f", "下周三"], ["en-m", "right?"]]
+        },
+        { "speaker": "Xiaoyu", "voice": "zh-f", "lang": "zh", "text": "对，下周三。张老师说了，不要迟到。" },
+        { "speaker": "Aoi", "voice": "ja-f", "lang": "ja", "text": "じゃあ、スライドは私が作るね。" },
+        { "speaker": "Dana", "voice": "en-f", "lang": "en", "text": "Great. Sam, can you book the study room for this Friday?" }
+      ],
+      "sample": {
+        "title": "English, Japanese and Chinese in one talk",
+        "blurb": "A study group sets a deadline in three languages, then asks Sam for help.",
+        "muffleLine": 4,
+        "pressAfterLine": 4,
+        "muffle": { "startSec": 16.7, "endSec": 21.7 },
+        "keyMomentSec": 21.7
+      },
+      "gold": {
+        "askTo": "you",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [{ "text": "张老师", "alts": ["张", "張", "Zhang", "Chang", "チャン", "ジャン"] }],
+        "numbers": [],
+        "dates": [{ "date": "2026-11-11", "said": "下周三" }, { "date": "2026-11-06", "said": "this Friday" }],
+        "terms": []
+      }
+    },
+    {
+      "id": "sample-office-hours",
+      "use": "sample",
+      "scene": "Office hours with a name, a teen number and a date",
+      "source": "sample",
+      "meetingLang": "en",
+      "cardLang": "ja",
+      "spokenLangs": ["en"],
+      "listener": ["Sam", "サム", "萨姆"],
+      "durationSec": 18,
+      "effect": "room",
+      "noise": { "kind": "room", "snrDb": 32 },
+      "lines": [
+        {
+          "speaker": "Siobhan",
+          "voice": "en-f",
+          "lang": "en",
+          "text": "Hi, come on in. I'm Siobhan, the TA for this section.",
+          "tts": [["en-f", "Hi, come on in. I'm Shivawn, the TA for this section."]]
+        },
+        { "speaker": "Siobhan", "voice": "en-f", "lang": "en", "text": "So, about the final paper." },
+        { "speaker": "Siobhan", "voice": "en-f", "lang": "en", "text": "It's fifteen percent of your grade, and it's due on the thirteenth.", "gap": 0.3 },
+        { "speaker": "Siobhan", "voice": "en-f", "lang": "en", "text": "Does that sound okay?" }
+      ],
+      "sample": {
+        "title": "Office hours with a name and a number",
+        "blurb": "A TA gives her name, a grade weight and a due date.",
+        "muffleLine": 2,
+        "pressAfterLine": 3,
+        "muffle": { "startSec": 10.5, "endSec": 15 },
+        "keyMomentSec": 16.7
+      },
+      "gold": {
+        "askTo": "you",
+        "heard": ["clear", "partial"],
+        "say": "expected",
+        "sayLang": "en",
+        "names": [{ "text": "Siobhan", "alts": ["Shivaun", "Shivawn", "Shevaun", "Chevonne", "Shavon", "Shivon", "シボーン", "シヴォーン", "西沃恩"] }],
+        "numbers": [{ "value": 15, "said": "fifteen percent", "confusable": true }],
+        "dates": [{ "date": "2026-11-13", "said": "the thirteenth" }],
+        "terms": []
+      }
+    }
+  ]
+}

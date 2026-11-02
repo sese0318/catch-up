@@ -1,0 +1,20 @@
+{
+  "name": "catch-up-desktop",
+  "productName": "Catch Up",
+  "version": "0.1.0",
+  "description": "Catch Up for Windows. A thin Electron shell around the Catch Up web app with a global hotkey, a compact panel, system audio and a tray icon.",
+  "private": true,
+  "type": "commonjs",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --disable-warning=ExperimentalWarning --test \"test/*.test.js\"",
+    "check": "node --check main.js && node --check preload.js && node --check contract.js && node --check tray-icon.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "electron": "45.2.1"
+  }
+}
