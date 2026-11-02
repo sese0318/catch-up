@@ -4,6 +4,9 @@
 // system audio through getDisplayMedia (video kept live at 1 fps, never enabled false), or a
 // sample clip played muffled to the speakers and clean into the ring. Pause stops every track and
 // zeroes the ring and all snapshots. Phones keep a Screen Wake Lock and pause on hide (interrupted).
+// When a sample finishes, status stays listening with endedAt set and the ring keeps the clip, so
+// a press still works, until a new start(), pause() or LIMITS.snapshotHoldMs later (paused with
+// reason sample_ended, memory zeroed).
 import type { CaptureEngine, CaptureEngineOptions, CaptureSupport } from "./types";
 
 /** Creates an idle engine. Nothing is requested from the browser until start(). */

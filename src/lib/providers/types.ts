@@ -1,6 +1,6 @@
 // Provider contract for the server lane (src/lib/providers, src/lib/server, src/app/api).
 // Server only. Keys are read from process.env on the server and never reach the browser.
-import type { CardBody } from "../card/schema";
+import type { CardBody, CardLang, META_RESPONSE_FORMAT } from "../card/schema";
 import {
   LIMITS,
   PROVIDER_FAILURES,
@@ -43,7 +43,7 @@ export interface ProviderTimings {
 
 export interface ProviderResult {
   body: CardBody; // parsed and clamped with parseCardText
-  model: string; // what served the card, used as meta.model
+  model: string; // what served the card, used as meta.model (see ServerCardMeta.model)
   parse: Exclude<ParseQuality, "unformatted">;
   transcript?: string; // Route A
   timings: ProviderTimings;
@@ -109,13 +109,163 @@ export const AUTO_POLICY = {
   fallbackOn: ["http", "rate_limited", "timeout", "no_token", "bad_json", "refused", "length", "empty"] as const,
 } as const;
 
+// Route B. Baseten Chat Completions, Muse Spark Open hears the WAV directly.
+
+/** Baseten's request schema is closed (additionalProperties false), so a Route B body has these fields only. */
+export const BASETEN_BODY_FIELDS = [
+  "model",
+  "messages",
+  "stream",
+  "stream_options",
+  "reasoning_effort",
+  "max_tokens",
+  "temperature",
+  "top_k",
+] as const;
+
+export const ROUTE_B = {
+  path: "/chat/completions",
+  instructionRole: "system", // Baseten's role enum is system, user, assistant and tool, with no developer
+  reasoningEffort: "low",
+  audioDataUrlPrefix: "data:audio/wav;base64,",
+  inputAudioRetryStatus: 400, // one retry with an input_audio part instead of audio_url
+  // Dev only. A slug that answers 403 or 404 is remembered for the life of the server instance,
+  // and later presses go straight to ServerEnv.baseten.modelFallback.
+  slugFallbackStatuses: [403, 404],
+  affinityHeader: "x-session-affinity", // carries PressMeta.sessionId and nothing else
+} as const;
+
+export type BasetenUserPart =
+  | { type: "text"; text: string } // userText(), always first
+  | { type: "audio_url"; audio_url: { url: string } } // ROUTE_B.audioDataUrlPrefix plus the base64 WAV
+  | { type: "input_audio"; input_audio: { data: string; format: "wav" } }; // the 400 retry shape
+
+/** The whole Route B body. temperature and top_k are left out when ServerEnv holds null for them. */
+export interface BasetenChatBody {
+  model: string;
+  messages: [
+    { role: typeof ROUTE_B.instructionRole; content: string }, // systemPrompt()
+    { role: "user"; content: BasetenUserPart[] },
+  ];
+  stream: true;
+  stream_options: { include_usage: true };
+  reasoning_effort: typeof ROUTE_B.reasoningEffort;
+  max_tokens: number;
+  temperature?: number;
+  top_k?: number;
+}
+
+// Route A. Muse Voice Transcribe, then muse-spark-1.3 on the transcript text.
+
+/** Voice Transcribe file endpoint. Meta ignores unknown mode and field names silently, so use these. */
+export const META_ASR = {
+  path: "/asr/transcribe",
+  requestPart: "request", // multipart JSON part holding MetaAsrRequest
+  audioPart: "audio", // multipart file part holding the WAV
+  audioFileName: "clip.wav",
+  audioEncoding: "WAV", // required, no default
+  mode: "PUSH_TO_TALK", // the clip is one turn, so a sentence cut by the press is kept
+  accept: "application/json",
+  maxKeywords: 20, // our own cap, not a documented limit
+} as const;
+
+/** languageBias takes language names, not codes. Unknown names are ignored silently, so gate 1 checks the Mandarin one. */
+export const ASR_LANGUAGE_NAMES: Readonly<Record<CardLang, string>> = {
+  en: "English",
+  ja: "Japanese",
+  zh: "Mandarin Chinese",
+};
+
+export interface MetaAsrRequest {
+  model: string;
+  audioEncoding: typeof META_ASR.audioEncoding;
+  mode: typeof META_ASR.mode;
+  languageBias: string[];
+  keywords?: string[];
+}
+
+/** Route A card call body fields. No temperature, top_p, stop, n or penalties (Meta returns 400 or ignores them). */
+export const META_CHAT_BODY_FIELDS = [
+  "model",
+  "messages",
+  "stream",
+  "stream_options",
+  "reasoning_effort",
+  "max_completion_tokens",
+  "response_format",
+] as const;
+
+export const ROUTE_A = {
+  chatPath: "/chat/completions",
+  instructionRole: "developer", // Meta prefers developer over system
+  reasoningEffort: "minimal",
+} as const;
+
+/** The whole Route A card body. The user message is userText() with the transcript, never audio. */
+export interface MetaChatBody {
+  model: string;
+  messages: [{ role: typeof ROUTE_A.instructionRole; content: string }, { role: "user"; content: string }];
+  stream: true;
+  stream_options: { include_usage: true };
+  reasoning_effort: typeof ROUTE_A.reasoningEffort;
+  max_completion_tokens: number;
+  response_format: typeof META_RESPONSE_FORMAT;
+}
+
+/** The PressMeta fields the transcription request uses. A decoded PressMeta fits as is. */
+export interface AsrPressInput {
+  meetingLang: CardLang;
+  cardLang: CardLang;
+  names: readonly string[];
+  hint?: string;
+}
+
+/** languageBias for a press, the meeting language first, without repeats (ux-spec 2-4). */
+export function asrLanguageBias(meta: Pick<AsrPressInput, "meetingLang" | "cardLang">): string[] {
+  return [...new Set([ASR_LANGUAGE_NAMES[meta.meetingLang], ASR_LANGUAGE_NAMES[meta.cardLang]])];
+}
+
+const KEYWORD_SEPARATORS = /[,，、]/;
+
+/** keywords for a press. The name forms, then the hint split on commas (also 、 and ，), trimmed, without repeats. */
+export function asrKeywords(meta: Pick<AsrPressInput, "names" | "hint">): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of [...meta.names, ...(meta.hint ?? "").split(KEYWORD_SEPARATORS)]) {
+    const word = raw.trim();
+    const key = word.toLocaleLowerCase();
+    if (!word || seen.has(key)) continue;
+    seen.add(key);
+    out.push(word);
+    if (out.length === META_ASR.maxKeywords) break;
+  }
+  return out;
+}
+
+/** The request part for POST /asr/transcribe. keywords is left out when there are none. */
+export function buildAsrRequest(meta: AsrPressInput, model: string): MetaAsrRequest {
+  const keywords = asrKeywords(meta);
+  return {
+    model,
+    audioEncoding: META_ASR.audioEncoding,
+    mode: META_ASR.mode,
+    languageBias: asrLanguageBias(meta),
+    ...(keywords.length > 0 ? { keywords } : {}),
+  };
+}
+
+/** Contributor Services may train on inputs, and Terms 6.2 bans personal information there. */
+export function isContributorModel(id: string): boolean {
+  return /-contributor$/i.test(id.trim());
+}
+
 /** Typed server settings, read by readServerEnv in src/lib/server/env.ts. */
 export interface ServerEnv {
   baseten: {
     apiKey: string | null;
     baseUrl: string;
-    model: string;
-    modelFallback: string | null; // tried once when model returns 404
+    model: string; // BASETEN_MODEL, the hackathon slug in production and in the demo
+    modelFallback: string | null; // dev only, tried on ROUTE_B.slugFallbackStatuses. Always null in production
     maxTokens: number;
     temperature: number | null; // null leaves it out of the request
     topK: number | null; // null leaves it out, -1 disables top-k
@@ -123,15 +273,15 @@ export interface ServerEnv {
   meta: {
     apiKey: string | null;
     baseUrl: string;
-    cardModel: string;
-    asrModel: string;
+    cardModel: string; // never a -contributor id, readServerEnv keeps the default instead
+    asrModel: string; // same rule
     maxCompletionTokens: number;
   };
   routePolicy: RoutePreference; // CATCHUP_ROUTE, used when a press asks for auto
   liveEnabled: boolean; // LIVE_ENABLED kill switch
   allowMock: boolean; // ALLOW_MOCK is 1 and NODE_ENV is not production
-  ratePerHour: number; // presses per client IP per hour, in memory
-  dailyCap: number; // live presses per server instance per UTC day
+  ratePerHour: number; // live presses per client key per hour, in memory. 0 turns it off. Mock never counts
+  dailyCap: number; // live presses per server instance per UTC day, at least 1. Mock never counts
   autoFallbackMs: number;
 }
 
@@ -164,7 +314,7 @@ export const SECRET_ENV_KEYS = ["BASETEN_API_KEY", "MODEL_API_KEY"] as const;
 export const ENV_DEFAULTS = {
   BASETEN_BASE_URL: "https://inference.baseten.co/v1",
   BASETEN_MODEL: "meta-models/muse-spark-open-1026",
-  BASETEN_MODEL_FALLBACK: "meta-models/muse-spark-open",
+  BASETEN_MODEL_FALLBACK: null, // set it only in .env.local, for example meta-models/muse-spark-open
   BASETEN_MAX_TOKENS: 2048,
   BASETEN_TEMPERATURE: 1.0,
   BASETEN_TOP_K: null,
@@ -196,13 +346,17 @@ export interface PressLogEntry {
   ms: { total: number; firstToken?: number; asr?: number };
 }
 
+/** The rate limit key when a request has no x-forwarded-for address (in-process calls, local dev). */
+export const LOCAL_CLIENT_KEY = "local";
+
 /** Injection points for handleCardRequest, used by tests and by the eval runner in process. */
 export interface CardHandlerDeps {
+  /** Replaces readServerEnv(). The eval passes ratePerHour 0 so its live presses are never refused. */
   env?: ServerEnv;
   providers?: Partial<Record<ProviderId, CardProvider>>;
   now?: () => number;
   log?: (entry: PressLogEntry) => void;
-  /** Rate limit key. Defaults to the first x-forwarded-for address. */
+  /** Rate limit key. Defaults to the first x-forwarded-for address, else LOCAL_CLIENT_KEY. The eval passes one key per run. */
   clientKey?: (req: Request) => string;
 }
 

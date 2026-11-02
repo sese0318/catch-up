@@ -1,7 +1,7 @@
 // Writing rules for user-facing English (UI copy, README, docs, error messages).
 // No em dash or en dash as punctuation, no hyphen or slash as a separator, no semicolons,
-// no colons in sentences or labels, and none of the banned words. Inline code, URLs, clock
-// times and number ranges are exempt. Use it in tests to check copy before it ships.
+// no colons in sentences or labels, and none of the banned words. Inline code, URLs, file paths,
+// model ids, clock times and number ranges are exempt. Use it in tests to check copy before it ships.
 
 export const COPY_BANNED_WORDS = [
   "delve",
@@ -40,6 +40,7 @@ export function copyRuleProblems(text: string): CopyProblem[] {
   const t = text
     .replace(/`[^`]*`/g, " ") // inline code
     .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, " ") // URLs
+    .replace(/\bmeta-models\/[A-Za-z0-9][\w.-]*/g, " ") // model ids such as meta-models/muse-spark-open-1026
     .replace(/(^|\s)\.{0,2}\/[\w./{},-]+/g, " ") // absolute and relative paths such as /api/card
     .replace(/[\w.{},-]+\/[\w./{},-]*\.[a-z0-9]{1,5}\b/gi, " ") // file paths such as src/lib/protocol.ts
     .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " "); // clock times

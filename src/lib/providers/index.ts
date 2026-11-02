@@ -1,6 +1,7 @@
 // Provider registry and route planning (ux-spec 2-4). Server lane. Server only.
 // open_weights is Baseten Chat Completions with Muse Spark Open hearing the WAV as an audio_url
-// data URL. meta_api is Muse Voice Transcribe (PUSH_TO_TALK) then muse-spark-1.3 with
+// data URL, a BasetenChatBody built with ROUTE_B. meta_api is Muse Voice Transcribe with
+// buildAsrRequest and META_ASR, then muse-spark-1.3 with a MetaChatBody built with ROUTE_A and
 // META_RESPONSE_FORMAT. mock serves mockCardBody with the timings of ux-spec 7 Modes 3.
 import type { RoutePreference } from "../protocol";
 import type { CardProvider, ProviderId, ServerEnv } from "./types";

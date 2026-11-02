@@ -3,9 +3,11 @@
 import type { CardHandlerDeps, HealthHandlerDeps } from "../providers/types";
 
 /**
- * POST /api/card. Decodes X-CatchUp-Meta, plans routes, applies the per-IP limit and the daily
- * cap, checks the body (checkClipWav or a transcript), then streams stage, card or error, and
- * done. Errors found before streaming use errorEventResponse. Logs one PressLogEntry per press.
+ * POST /api/card. Decodes X-CatchUp-Meta, plans routes, applies the per-client hourly limit and the
+ * daily cap (live presses only, mock presses never count), checks the body (checkClipWav or a
+ * transcript), then streams stage, card or error, and done. A press counts toward the guards only
+ * once its body passes and a live provider is about to run. Errors found before streaming use
+ * errorEventResponse. Logs one PressLogEntry per press.
  */
 export async function handleCardRequest(req: Request, deps?: CardHandlerDeps): Promise<Response> {
   void req;

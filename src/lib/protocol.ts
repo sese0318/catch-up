@@ -14,7 +14,11 @@ import {
   type Card,
   type CardMeta,
   type CardTimings,
+  type SentRecord,
 } from "./card/schema";
+import { ErrorCode, ProviderFailure } from "./codes";
+
+export { ERROR_CODES, ErrorCode, PROVIDER_FAILURES, ProviderFailure } from "./codes";
 
 export const PROTOCOL_VERSION = 1 as const;
 export const CARD_ENDPOINT = "/api/card";
@@ -89,51 +93,63 @@ export const STAGE_NAMES = ["received", "writing", "fallback"] as const;
 export const StageName = z.enum(STAGE_NAMES);
 export type StageName = z.infer<typeof StageName>;
 
-/** Why a provider gave up. Never carries content. */
-export const PROVIDER_FAILURES = [
-  "not_configured",
-  "bad_input",
-  "http",
-  "rate_limited",
-  "timeout",
-  "no_token",
-  "bad_json",
-  "refused",
-  "length",
-  "empty",
-  "aborted",
-] as const;
-export const ProviderFailure = z.enum(PROVIDER_FAILURES);
-export type ProviderFailure = z.infer<typeof ProviderFailure>;
-
 export const PARSE_QUALITIES = ["clean", "clamped", "unformatted"] as const;
 export const ParseQuality = z.enum(PARSE_QUALITIES);
 export type ParseQuality = z.infer<typeof ParseQuality>;
-
-export const ERROR_CODES = [
-  "bad_request",
-  "bad_audio",
-  "too_large",
-  "rate_limited",
-  "daily_cap",
-  "live_off",
-  "not_configured",
-  "mock_refused",
-  "timeout",
-  "provider_error",
-  "server_error",
-  "offline", // client only
-  "network", // client only
-  "aborted", // client only
-] as const;
-export const ErrorCode = z.enum(ERROR_CODES);
-export type ErrorCode = z.infer<typeof ErrorCode>;
 
 // X-CatchUp-Meta header
 
 const SESSION_ID = /^[A-Za-z0-9_-]{8,64}$/;
 
-/** Everything the server needs about one press. Nothing else personal travels with a press. */
+/** Cuts text to a width cap at a code point boundary, without an ellipsis. For header fields, not display. */
+function cutToWidth(text: string, cap: number): string {
+  let out = "";
+  let width = 0;
+  for (const ch of text) {
+    const w = widthOf(ch);
+    if (width + w > cap) break;
+    out += ch;
+    width += w;
+  }
+  return out.trimEnd();
+}
+
+/**
+ * Listener names as they go into PressMeta. Collapses spaces, drops blank and repeated forms, keeps
+ * at most 3, and skips a form that would push the joined width ("a, b, c") over CAPS.listenerNames.
+ * A first form that is wider than the cap on its own is cut to fit. The press pipeline runs this on
+ * the raw settings before encodeMetaHeader, and the UI caps its inputs with the same widthOf.
+ */
+export function normalizeNames(names: readonly string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of names) {
+    if (out.length === 3) break;
+    let name = raw.replace(/\s+/g, " ").trim();
+    if (!name) continue;
+    if (out.length === 0 && widthOf(name) > CAPS.listenerNames) name = cutToWidth(name, CAPS.listenerNames);
+    const key = name.toLocaleLowerCase();
+    if (!name || seen.has(key)) continue;
+    if (widthOf([...out, name].join(", ")) > CAPS.listenerNames) continue;
+    seen.add(key);
+    out.push(name);
+  }
+  return out;
+}
+
+/** The session hint as it goes into PressMeta. Collapses spaces, undefined when empty, cut to CAPS.sessionHint. */
+export function normalizeHint(hint: string | null | undefined): string | undefined {
+  const text = (hint ?? "").replace(/\s+/g, " ").trim();
+  if (!text) return undefined;
+  const fitted = widthOf(text) > CAPS.sessionHint ? cutToWidth(text, CAPS.sessionHint) : text;
+  return fitted || undefined;
+}
+
+/**
+ * Everything the server needs about one press. Nothing else personal travels with a press.
+ * Build names with normalizeNames and hint with normalizeHint, because encodeMetaHeader throws
+ * on blank names, an empty hint or anything over the width caps.
+ */
 export const PressMeta = z
   .object({
     v: z.literal(PROTOCOL_VERSION),
@@ -253,6 +269,8 @@ export type ServerTiming = z.infer<typeof ServerTiming>;
 /** The meta fields the server writes. The client adds the rest with toCard. */
 export const ServerCardMeta = z.object({
   route: z.enum(["open_weights", "meta_api", "mock"]),
+  // What served the card. Route B is the slug that answered (BASETEN_MODEL, or the dev-only fallback
+  // slug), Route A is routeAModelLabel(asr, card) for audio and the card model alone for a transcript.
   model: z.string(),
   fallbackFrom: z.literal("open_weights").optional(),
   fallbackCause: ProviderFailure.optional(),
@@ -448,7 +466,7 @@ export const ERROR_INFO: Readonly<Record<ErrorCode, ErrorInfo>> = {
 
 /** English copy. Says what happened and whether anything left. The action button carries the next step. */
 export const ERROR_COPY_EN: Readonly<Record<ErrorCode, string>> = {
-  bad_request: "The server couldn't read that request. Catch Up saved nothing.",
+  bad_request: "That request couldn't be read. Catch Up saved nothing.",
   bad_audio: "That clip wasn't usable audio. Catch Up saved nothing.",
   too_large: "That clip is longer than 2 minutes. Nothing was sent to a model.",
   rate_limited: "Live cards are paused for now. Samples show saved real cards.",
@@ -540,7 +558,7 @@ export const HealthResponse = z.object({
   limits: z.object({
     maxBodyBytes: z.number().int().positive(),
     maxClipSec: z.number().positive(),
-    perHour: z.number().int().nonnegative(),
+    perHour: z.number().int().nonnegative(), // live presses per client per hour, 0 means no per-client limit
     hardCapMs: z.number().int().positive(),
   }),
 });
@@ -679,6 +697,7 @@ export interface ClientCardMeta {
   source: Source;
   ms: CardTimings;
   bytesSent: number;
+  sent: SentRecord;
 }
 
 /** Joins a wire card with the client's meta into a full Card. Server-only extras are dropped. */
@@ -695,6 +714,7 @@ export function toCard(wire: WireCard, client: ClientCardMeta): Card {
     model: server.model,
     ms: client.ms,
     bytesSent: client.bytesSent,
+    sent: { ...client.sent },
   };
   if (server.fallbackFrom) meta.fallbackFrom = server.fallbackFrom;
   if (server.transcript !== undefined) meta.transcript = server.transcript;

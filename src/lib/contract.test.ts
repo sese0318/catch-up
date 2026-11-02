@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
+  DESKTOP_COMMANDS,
   DESKTOP_HOTKEY_PRESETS,
   DESKTOP_IPC,
   getDesktopBridge,
@@ -18,20 +19,33 @@ import {
   FACT_KINDS,
   HEARD_VALUES,
   LIVE_ROUTES,
+  LIVE_ROUTE_LABELS,
   META_RESPONSE_FORMAT,
   ROUTE_LABELS,
   SAY_LANGS,
+  routeLabelOf,
+  routeAModelLabel,
   widthOf,
 } from "./card/schema";
 import { COPY_BANNED_WORDS, copyRuleProblems } from "./copy-rules";
-import { PROVIDER_FAILURES } from "./protocol";
+import { ERROR_CODES, PROVIDER_FAILURES } from "./protocol";
 import {
   AUTO_POLICY,
+  BASETEN_BODY_FIELDS,
   ENV_DEFAULTS,
   ENV_KEYS,
+  META_ASR,
+  META_CHAT_BODY_FIELDS,
   ProviderError,
+  ROUTE_A,
+  ROUTE_B,
   SECRET_ENV_KEYS,
+  asrKeywords,
+  buildAsrRequest,
+  isContributorModel,
   isProviderError,
+  type BasetenChatBody,
+  type MetaChatBody,
 } from "./providers/types";
 import { getCachedCard, listSampleClips } from "./samples/catalog";
 
@@ -55,6 +69,7 @@ const fullCard = {
     fallbackFrom: "open_weights",
     ms: { total: 6100 },
     bytesSent: 1_360_044,
+    sent: { body: "audio", names: true, hint: false },
     transcript: "Who can take the notes today?",
   },
 };
@@ -64,6 +79,32 @@ describe("card schema", () => {
     const parsed = Card.parse({ ...fullCard, extra: 1 });
     expect(parsed).not.toHaveProperty("extra");
     expect(parsed.meta.fallbackFrom).toBe("open_weights");
+    expect(parsed.meta.sent).toEqual({ body: "audio", names: true, hint: false });
+  });
+
+  it("requires a sent record, and the saved run of a cached card", () => {
+    const withMeta = (patch: object) => ({ ...fullCard, meta: { ...fullCard.meta, fallbackFrom: undefined, ...patch } });
+    const { sent: _sent, ...noSent } = fullCard.meta;
+    void _sent;
+    expect(Card.safeParse({ ...fullCard, meta: noSent }).success).toBe(false);
+    const cached = { route: "cached", model: "meta-models/muse-spark-open-1026", transcript: undefined };
+    expect(Card.safeParse(withMeta(cached)).success).toBe(false);
+    expect(Card.safeParse(withMeta({ ...cached, cachedFrom: "open_weights" })).success).toBe(false);
+    const ok = withMeta({ ...cached, cachedFrom: "open_weights", cachedRunAt: "2026-11-03", cachedBecause: "live_off" });
+    expect(Card.safeParse(ok).success).toBe(true);
+    expect(Card.safeParse(withMeta({ cachedBecause: "live_off" })).success).toBe(false);
+  });
+
+  it("labels cached cards by the live route of their saved run", () => {
+    expect(routeLabelOf({ route: "cached", cachedFrom: "open_weights" })).toBe("Saved result from Muse Spark Open");
+    expect(routeLabelOf({ route: "cached", cachedFrom: "meta_api" })).toBe(
+      "Saved result from Muse Voice Transcribe and Muse Spark",
+    );
+    expect(routeLabelOf({ route: "open_weights" })).toBe(LIVE_ROUTE_LABELS.open_weights);
+    expect(routeLabelOf({ route: "mock" })).toBe(ROUTE_LABELS.mock);
+    for (const route of LIVE_ROUTES) {
+      expect(copyRuleProblems(routeLabelOf({ route: "cached", cachedFrom: route }))).toEqual([]);
+    }
   });
 
   it("checks structure and enums but not width", () => {
@@ -188,6 +229,85 @@ describe("server contract", () => {
     for (const code of ["not_configured", "aborted", "bad_input"]) {
       expect(AUTO_POLICY.fallbackOn as readonly string[]).not.toContain(code);
     }
+    expect(ERROR_CODES).toContain("aborted");
+  });
+
+  it("keeps the public Baseten slug out of the default env", () => {
+    expect(ENV_DEFAULTS.BASETEN_MODEL).toBe("meta-models/muse-spark-open-1026");
+    expect(ENV_DEFAULTS.BASETEN_MODEL_FALLBACK).toBeNull();
+    expect(entries.get("BASETEN_MODEL_FALLBACK")).toBe("");
+    expect([...ROUTE_B.slugFallbackStatuses]).toEqual([403, 404]);
+  });
+
+  it("never accepts a contributor model", () => {
+    expect(isContributorModel("muse-spark-1.3-contributor")).toBe(true);
+    expect(isContributorModel(" muse-spark-1.2-CONTRIBUTOR ")).toBe(true);
+    expect(isContributorModel(ENV_DEFAULTS.META_CARD_MODEL)).toBe(false);
+    expect(isContributorModel(ENV_DEFAULTS.META_ASR_MODEL)).toBe(false);
+    expect(isContributorModel(ENV_DEFAULTS.BASETEN_MODEL)).toBe(false);
+  });
+
+  it("sends Baseten and Meta only their documented body fields and roles", () => {
+    const route: BasetenChatBody = {
+      model: ENV_DEFAULTS.BASETEN_MODEL,
+      messages: [
+        { role: ROUTE_B.instructionRole, content: "rules" },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "press" },
+            { type: "audio_url", audio_url: { url: `${ROUTE_B.audioDataUrlPrefix}UklGRg` } },
+          ],
+        },
+      ],
+      stream: true,
+      stream_options: { include_usage: true },
+      reasoning_effort: ROUTE_B.reasoningEffort,
+      max_tokens: ENV_DEFAULTS.BASETEN_MAX_TOKENS,
+      temperature: ENV_DEFAULTS.BASETEN_TEMPERATURE,
+      top_k: -1,
+    };
+    expect(Object.keys(route).sort()).toEqual([...BASETEN_BODY_FIELDS].sort());
+    expect(route.messages[0].role).toBe("system");
+    expect(route.reasoning_effort).toBe("low");
+
+    const card: MetaChatBody = {
+      model: ENV_DEFAULTS.META_CARD_MODEL,
+      messages: [
+        { role: ROUTE_A.instructionRole, content: "rules" },
+        { role: "user", content: "press and transcript" },
+      ],
+      stream: true,
+      stream_options: { include_usage: true },
+      reasoning_effort: ROUTE_A.reasoningEffort,
+      max_completion_tokens: ENV_DEFAULTS.META_MAX_COMPLETION_TOKENS,
+      response_format: META_RESPONSE_FORMAT,
+    };
+    expect(Object.keys(card).sort()).toEqual([...META_CHAT_BODY_FIELDS].sort());
+    expect(card.messages[0].role).toBe("developer");
+    expect(card.reasoning_effort).toBe("minimal");
+  });
+
+  it("builds the Voice Transcribe request from typed constants", () => {
+    expect(META_ASR).toMatchObject({ requestPart: "request", audioPart: "audio", audioEncoding: "WAV", mode: "PUSH_TO_TALK" });
+    const press = {
+      meetingLang: "en",
+      cardLang: "ja",
+      names: ["Seika", "セイカ", "星佳"],
+      hint: "Prof. Gagne, PSY-201、operant conditioning，seika",
+    } as const;
+    expect(buildAsrRequest(press, ENV_DEFAULTS.META_ASR_MODEL)).toEqual({
+      model: "muse-voice-transcribe-1.0",
+      audioEncoding: "WAV",
+      mode: "PUSH_TO_TALK",
+      languageBias: ["English", "Japanese"],
+      keywords: ["Seika", "セイカ", "星佳", "Prof. Gagne", "PSY-201", "operant conditioning"],
+    });
+    const plain = buildAsrRequest({ meetingLang: "zh", cardLang: "zh", names: [] }, "muse-voice-transcribe-1.0");
+    expect(plain.languageBias).toEqual(["Mandarin Chinese"]);
+    expect(plain).not.toHaveProperty("keywords");
+    const many = asrKeywords({ names: [], hint: Array.from({ length: 30 }, (_, i) => `term${i}`).join(", ") });
+    expect(many).toHaveLength(META_ASR.maxKeywords);
   });
 });
 
@@ -209,9 +329,21 @@ describe("client contract", () => {
     expect(getDesktopBridge()).toBeNull();
   });
 
+  it("sends tray Catch me up as a press on the hotkey channel, not as a command", () => {
+    expect([...DESKTOP_COMMANDS]).toEqual(["pause", "resume"]);
+    expect(DESKTOP_IPC.hotkey).toBe("catchup:hotkey");
+    expect(DESKTOP_IPC.hotkeyChanged).toBe("catchup:hotkey-changed");
+  });
+
   it("starts with no public samples and no cached cards", () => {
     expect(Array.isArray(listSampleClips())).toBe(true);
     expect(getCachedCard("missing", "en")).toBeNull();
+  });
+
+  it("keeps the sample catalog browser safe", () => {
+    const source = readFileSync(fileURLToPath(new URL("./samples/catalog.ts", import.meta.url)), "utf8");
+    expect(source).not.toMatch(/from\s+["'](?:node:|fs|path|@\/lib\/server|\.\.\/server)/);
+    expect(source).not.toMatch(/\brequire\(/);
   });
 });
 
@@ -230,5 +362,13 @@ describe("copy rules", () => {
     expect(copyRuleProblems("POST /api/card reads src/lib/protocol.ts and ./eval/run.ts")).toEqual([]);
     expect(copyRuleProblems("Pick tab/window audio")).toContain("slash");
     expect(COPY_BANNED_WORDS).toHaveLength(19);
+  });
+
+  it("lets receipts name both routes' model ids", () => {
+    const routeB = `Sent the last 30 s of audio, your name and card language to ${LIVE_ROUTE_LABELS.open_weights} (${ENV_DEFAULTS.BASETEN_MODEL}) at 10:42:40. Card in 2.9 s. Catch Up saved nothing.`;
+    const routeA = `Sent the last 60 s of audio and card language to ${LIVE_ROUTE_LABELS.meta_api} (${routeAModelLabel(ENV_DEFAULTS.META_ASR_MODEL, ENV_DEFAULTS.META_CARD_MODEL)}) at 10:42:40. Card in 6.1 s. Catch Up saved nothing.`;
+    expect(copyRuleProblems(routeB)).toEqual([]);
+    expect(copyRuleProblems(routeA)).toEqual([]);
+    expect(copyRuleProblems("Dev slug meta-models/muse-spark-open, tab/window")).toEqual(["slash"]);
   });
 });

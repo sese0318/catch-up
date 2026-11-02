@@ -5,6 +5,7 @@
 // Over-cap text is clipped by the card module (clipToWidth), never rejected,
 // so these zod schemas check structure and enums only.
 import { z } from "zod";
+import { ErrorCode } from "../codes";
 
 export const CARD_LANGS = ["en", "ja", "zh"] as const; // zh means Simplified Chinese (zh-Hans)
 export const HEARD_VALUES = ["clear", "partial", "poor", "none"] as const;
@@ -102,35 +103,75 @@ export const CardTimings = z.object({
 });
 export type CardTimings = z.infer<typeof CardTimings>;
 
-/** Written by the app, never by the model. */
-export const CardMeta = z.object({
-  id: z.string().min(1),
-  pressedAt: z.string().min(1), // ISO time of the keydown, pointerdown or hotkey event
-  windowSec: WindowSec,
-  sentSec: z.number().nonnegative(), // less than windowSec when memory was not full yet
-  cardLang: CardLang,
-  source: Source,
-  route: CardRoute,
-  model: z.string(), // "meta-models/muse-spark-open-1026", or "muse-voice-transcribe-1.0 + muse-spark-1.3"
-  fallbackFrom: z.literal("open_weights").optional(),
-  ms: CardTimings,
-  bytesSent: z.number().int().nonnegative(),
-  transcript: z.string().optional(), // Route A only, shown under What they said
-  cachedRunAt: z.string().optional(), // set when route is "cached", the date of the real run it came from
-  unformatted: z.literal(true).optional(), // JSON never parsed, the raw text sits in summary[0]
+/** What left the device with this press, written by the press pipeline for the receipt. */
+export const SENT_BODIES = ["audio", "transcript", "none"] as const;
+export const SentRecord = z.object({
+  body: z.enum(SENT_BODIES), // the WAV, the earlier Route A transcript (language redo), or nothing
+  names: z.boolean(), // listener names travelled in the header
+  hint: z.boolean(), // the session hint travelled in the header
 });
+export type SentRecord = z.infer<typeof SentRecord>;
+
+/** Written by the app, never by the model. */
+export const CardMeta = z
+  .object({
+    id: z.string().min(1),
+    pressedAt: z.string().min(1), // ISO time of the keydown, pointerdown or hotkey event
+    windowSec: WindowSec,
+    sentSec: z.number().nonnegative(), // less than windowSec when memory was not full yet
+    cardLang: CardLang,
+    source: Source,
+    route: CardRoute,
+    // What served the card. Route B is the slug that answered, Route A is routeAModelLabel(asr, card)
+    // for audio and the card model alone for a transcript redo. Cached cards keep their saved model.
+    model: z.string(),
+    fallbackFrom: z.literal("open_weights").optional(),
+    ms: CardTimings, // for cached cards, the timings of the saved run
+    bytesSent: z.number().int().nonnegative(),
+    sent: SentRecord, // this press, also for cached and mock cards
+    transcript: z.string().optional(), // Route A only, shown under What they said
+    cachedFrom: LiveRoute.optional(), // required when route is "cached", the live route of the saved run
+    cachedRunAt: z.string().optional(), // required when route is "cached", the date of the saved run
+    cachedBecause: ErrorCode.optional(), // only with route "cached", why the saved card stood in
+    unformatted: z.literal(true).optional(), // JSON never parsed, the raw text sits in summary[0]
+  })
+  .superRefine((m, ctx) => {
+    if (m.route === "cached") {
+      if (!m.cachedFrom) ctx.addIssue({ code: "custom", path: ["cachedFrom"], message: "cached cards name their live route" });
+      if (!m.cachedRunAt) ctx.addIssue({ code: "custom", path: ["cachedRunAt"], message: "cached cards carry their run date" });
+    } else if (m.cachedFrom || m.cachedRunAt || m.cachedBecause) {
+      ctx.addIssue({ code: "custom", path: ["route"], message: "cached fields need route cached" });
+    }
+  });
 export type CardMeta = z.infer<typeof CardMeta>;
 
 export const Card = CardBody.extend({ meta: CardMeta });
 export type Card = z.infer<typeof Card>;
 
-/** Receipt and footer names for each route. App chrome, English only. */
-export const ROUTE_LABELS: Record<CardRoute, string> = {
+/** Who serves a live card, for receipts, the footer and the How your audio is handled sheet. */
+export const LIVE_ROUTE_LABELS: Record<LiveRoute, string> = {
   open_weights: "Muse Spark Open on Baseten",
   meta_api: "Muse Voice Transcribe and Muse Spark on Meta Model API",
-  cached: "Saved result from Muse Spark Open",
+};
+
+/** Model family names, used for the cached label. */
+export const LIVE_ROUTE_MODEL_NAMES: Record<LiveRoute, string> = {
+  open_weights: "Muse Spark Open",
+  meta_api: "Muse Voice Transcribe and Muse Spark",
+};
+
+/** Receipt and footer names for each route. App chrome, English only. Cards use routeLabelOf. */
+export const ROUTE_LABELS: Record<CardRoute, string> = {
+  ...LIVE_ROUTE_LABELS,
+  cached: "Saved result",
   mock: "Sample card, no model was called",
 };
+
+/** The route label a card shows. A cached card names its saved run, for example Saved result from Muse Spark Open. */
+export function routeLabelOf(meta: Pick<CardMeta, "route" | "cachedFrom">): string {
+  if (meta.route === "cached" && meta.cachedFrom) return `Saved result from ${LIVE_ROUTE_MODEL_NAMES[meta.cachedFrom]}`;
+  return ROUTE_LABELS[meta.route];
+}
 
 /** Route A model label as it appears in meta.model. */
 export function routeAModelLabel(asrModel: string, cardModel: string): string {

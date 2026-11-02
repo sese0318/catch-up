@@ -23,6 +23,8 @@ import {
   errorEventResponse,
   inspectWav,
   isEventStream,
+  normalizeHint,
+  normalizeNames,
   readEventStream,
   toCard,
   toLocalIso,
@@ -164,6 +166,25 @@ describe("X-CatchUp-Meta header", () => {
     expect(() => encodeMetaHeader({ ...meta, route: "mock", mock: { mode: "slow", fixture: "room" } })).not.toThrow();
     expect(() => encodeMetaHeader({ ...meta, names: ["a", "b", "c", "d"] })).toThrow();
     expect(() => encodeMetaHeader({ ...meta, sessionId: "short" })).toThrow();
+  });
+
+  it("normalizes raw names and hint so encoding never throws on them", () => {
+    expect(normalizeNames(["  Seika ", "", "   ", "seika", "セイカ", "星佳", "Karamatsu"])).toEqual(["Seika", "セイカ", "星佳"]);
+    const wide = ["星".repeat(40), "セイカ"];
+    const names = normalizeNames(wide);
+    expect(names).toHaveLength(1);
+    expect(names[0]).toBe("星".repeat(30));
+    expect(normalizeNames(["Alexandra Montgomery-Smith", "Alexandra Beatrice Montgomery-Smith", "Al"])).toEqual([
+      "Alexandra Montgomery-Smith",
+      "Al",
+    ]);
+    expect(normalizeHint("   ")).toBeUndefined();
+    expect(normalizeHint(undefined)).toBeUndefined();
+    expect(normalizeHint(" Prof.  Gagne,\nPSY-201 ")).toBe("Prof. Gagne, PSY-201");
+    expect(normalizeHint("あ".repeat(70))).toBe("あ".repeat(60));
+    const messy = { ...meta, names: normalizeNames([" ", "星佳".repeat(20), "Seika"]), hint: normalizeHint("い".repeat(99)) };
+    expect(() => encodeMetaHeader(messy)).not.toThrow();
+    expect(() => encodeMetaHeader({ ...meta, names: normalizeNames([]), hint: normalizeHint("") })).not.toThrow();
   });
 
   it("tells WAV bodies from transcript bodies", () => {
@@ -341,8 +362,10 @@ describe("card assembly and health", () => {
       source: "tab",
       ms: { total: 3400, firstToken: 2400, upload: 300 },
       bytesSent: 960_044,
+      sent: { body: "audio", names: true, hint: true },
     });
     expect(Card.parse(card)).toEqual(card);
+    expect(card.meta.sent).toEqual({ body: "audio", names: true, hint: true });
     expect(card.meta.route).toBe("open_weights");
     expect(card.meta.model).toBe("meta-models/muse-spark-open-1026");
     expect(card.meta).not.toHaveProperty("timing");

@@ -51,13 +51,27 @@ export class CaptureError extends Error {
   }
 }
 
+/**
+ * Why capture is paused. Every paused state has zeroed the ring and every snapshot.
+ * user is Pause, interrupted is a phone hiding the page, source_lost is a track that ended,
+ * replaced is a new start() taking over, and sample_ended is a finished sample whose hold ran out
+ * (LIMITS.snapshotHoldMs after it ended). A sample that just finished is still listening, see endedAt.
+ */
 export type PauseReason = "user" | "interrupted" | "source_lost" | "sample_ended" | "replaced";
 
 /** Snapshot for useSyncExternalStore. A new object only when something changed. */
 export type CaptureStatus =
   | { state: "idle" }
   | { state: "starting"; source: CaptureSourceKind }
-  | { state: "listening"; source: CaptureSourceKind; startedAt: number }
+  | {
+      state: "listening";
+      source: CaptureSourceKind;
+      startedAt: number;
+      // Set only when a sample clip finished playing (epoch ms). The ring stops filling and level
+      // readings stop, but the clip stays in memory and a press still works, until a new start(),
+      // pause(), or endedAt + LIMITS.snapshotHoldMs (then paused with reason sample_ended).
+      endedAt?: number;
+    }
   | { state: "paused"; source: CaptureSourceKind | null; reason: PauseReason } // memory and held clips are zeroed
   | { state: "error"; source: CaptureSourceKind; code: CaptureErrorCode };
 
@@ -135,13 +149,17 @@ export interface CaptureEngine {
 
 // Press pipeline
 
-/** Read at press time from the UI's settings (localStorage) and session state. */
+/**
+ * Read at press time from the UI's settings (localStorage) and session state. names and hint are
+ * the raw inputs. The pipeline runs normalizeNames and normalizeHint (src/lib/protocol.ts) before
+ * encodeMetaHeader, and reports any encode failure as error bad_request with sent false.
+ */
 export interface PressSettings {
   cardLang: CardLang;
   meetingLang: CardLang;
   windowSec: WindowSec;
-  names: readonly string[]; // up to 3 forms, 60 width units in all
-  hint: string; // empty string when there is none
+  names: readonly string[]; // raw forms, the UI caps each input with widthOf
+  hint: string; // raw text, empty string when there is none
   route: RoutePreference;
   mock?: MockSpec; // dev only, from ?mock=
   tz?: string; // IANA time zone
@@ -164,22 +182,21 @@ export type PressEvent =
   | {
       type: "card";
       pressId: string;
-      card: Card;
+      card: Card; // card.meta.sent says what left the device. A cached stand-in has cachedBecause set
       replaces: string | null; // id of the card this one replaces (Further back, language redo)
       server: ServerTiming | null; // null for cached cards
-      cachedBecause?: ErrorCode; // set when a saved sample card stands in for a failed live call
     }
   | {
       type: "error";
       pressId: string;
-      code: ErrorCode;
+      code: ErrorCode; // aborted means the press ended without Esc or Cancel, for example dispose()
       retryable: boolean;
-      sent: boolean; // whether audio left the device for this press
+      sent: boolean; // whether audio or a transcript left the device for this press
       route?: LiveRoute;
       cause?: ProviderFailure;
       retryAfterSec?: number;
     }
-  | { type: "cancelled"; pressId: string }
+  | { type: "cancelled"; pressId: string; sent: boolean } // Esc or Cancel only. The UI shows ERROR_COPY_EN.aborted
   | { type: "held"; until: number | null }; // the press snapshot is reusable until then, null once zeroed
 
 export type PressRefusal = "busy" | "not_listening" | "warming_up" | "nothing_held";
@@ -188,7 +205,7 @@ export type PressResult = { accepted: true; pressId: string } | { accepted: fals
 export interface PressPipeline {
   /** Never throws. Ignored while a press is in flight. */
   press(request: PressRequest): PressResult;
-  /** Esc or Cancel. Aborts the request and emits cancelled. */
+  /** Esc or Cancel. Aborts the request and emits cancelled, never an error event. */
   cancel(): void;
   isBusy(): boolean;
   heldUntil(): number | null;
@@ -234,7 +251,18 @@ export interface DesktopHotkeyState {
 }
 
 export type DesktopView = "compact" | "full"; // 360 x 480 non-focusable panel, or 480 x 760 Full view
-export type DesktopCommand = "catch_up" | "pause" | "resume"; // from the tray menu
+
+/** Tray Pause and Resume. Tray Catch me up is a press and travels on DESKTOP_IPC.hotkey instead. */
+export const DESKTOP_COMMANDS = ["pause", "resume"] as const;
+export type DesktopCommand = (typeof DESKTOP_COMMANDS)[number];
+
+/** One press from the main process, the global hotkey or tray Catch me up. The page treats both the same. */
+export interface DesktopPressPayload {
+  at: number; // epoch ms of the key event or the tray click in main, used as pressedAt
+  via: "hotkey" | "tray";
+  accelerator: DesktopHotkeyPreset | null; // the live preset for a hotkey press, null for the tray
+}
+
 export interface DesktopTrayState {
   listening: boolean; // filled icon while listening, hollow when paused
   problem: string | null; // badge plus tooltip, for example "Stopped hearing system audio"
@@ -242,7 +270,8 @@ export interface DesktopTrayState {
 
 /** IPC channel names shared by desktop/main.js and desktop/preload.js. */
 export const DESKTOP_IPC = {
-  hotkey: "catchup:hotkey", // main to page, payload { at, accelerator }
+  hotkey: "catchup:hotkey", // main to page, payload DesktopPressPayload (global hotkey and tray Catch me up)
+  hotkeyChanged: "catchup:hotkey-changed", // main to page, payload DesktopHotkeyState, after any registration change
   command: "catchup:command", // main to page, payload DesktopCommand
   viewChanged: "catchup:view-changed", // main to page, payload DesktopView
   getView: "catchup:get-view",
@@ -258,8 +287,10 @@ export const DESKTOP_IPC = {
 export interface CatchUpDesktopBridge {
   readonly isDesktop: true;
   readonly bridgeVersion: typeof DESKTOP_BRIDGE_VERSION;
-  /** Global hotkey or tray Catch me up. at is epoch ms of the key event in main. Returns unsubscribe. */
-  onHotkey(callback: (payload: { at: number; accelerator: string }) => void): () => void;
+  /** A press from main, the global hotkey or tray Catch me up. Returns unsubscribe. */
+  onHotkey(callback: (payload: DesktopPressPayload) => void): () => void;
+  /** Fires after startup registration, a preset fallback, setHotkey or a tray preset pick. */
+  onHotkeyChange(callback: (state: DesktopHotkeyState) => void): () => void;
   onCommand(callback: (command: DesktopCommand) => void): () => void;
   onViewChange(callback: (view: DesktopView) => void): () => void;
   getView(): Promise<DesktopView>;
