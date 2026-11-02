@@ -1,7 +1,7 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
-# dependencies
-/node_modules
+# dependencies (any folder, desktop/ included)
+node_modules/
 /.pnp
 .pnp.*
 .yarn/*
@@ -20,6 +20,17 @@
 # production
 /build
 
+# Windows app build output
+desktop/dist/
+desktop/out/
+
+# eval audio and raw model output (consent covers measurement, not publishing)
+eval/clips/
+eval/results/raw/
+
+# synthetic sample clips for local dev, never shipped
+public/samples/dev/
+
 # misc
 .DS_Store
 *.pem
@@ -30,7 +41,7 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files (keys live only in .env.local or Vercel)
 .env*
 
 # vercel
