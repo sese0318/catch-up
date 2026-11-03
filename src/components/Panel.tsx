@@ -622,7 +622,7 @@ function SecondaryRow({ surface }: { surface: PanelSurface }) {
       {items}
       {showHotkeyProblem ? (
         <p className="cu-secondary-note" lang="en">
-          {hotkeyTaken(acceleratorLabel(hotkey?.accelerator ?? "Control+Alt+C"))}
+          {hotkey?.error ?? hotkeyTaken(acceleratorLabel(hotkey?.accelerator ?? "Control+Alt+C"))}
         </p>
       ) : null}
     </div>

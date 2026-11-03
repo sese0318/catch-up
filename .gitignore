@@ -26,6 +26,7 @@ desktop/out/
 
 # eval audio and raw model output (consent covers measurement, not publishing)
 eval/clips/
+eval/recorded/
 eval/results/raw/
 
 # synthetic sample clips for local dev, never shipped

@@ -285,7 +285,7 @@ function HotkeySettings() {
       <p className="cu-help">{UI.hotkeyHelp}</p>
       {hotkey && !hotkey.registered ? (
         <p className="cu-help cu-help-warn" role="status">
-          {hotkeyTaken(acceleratorLabel(hotkey.accelerator ?? DESKTOP_HOTKEY_PRESETS[0]))}
+          {hotkey.error ?? hotkeyTaken(acceleratorLabel(hotkey.accelerator ?? DESKTOP_HOTKEY_PRESETS[0]))}
         </p>
       ) : hotkey?.error ? (
         // Why the app started on another preset (taken, or AltGr+C types a character here).
