@@ -85,7 +85,7 @@ On 2026-11-02 a script ran checks 1, 2, 4, 5, 8, 10, 12, 13 and 15 against a liv
 
 - Passed 1, 2, 4, 5, 10, 12 and 15. Audio came from process loopback (`loopbackWithoutChrome`) and kept flowing a minute after the video track stopped. A tap and a 2-second hold of Ctrl+Alt+C each counted as one press and the app in front kept focus. Live cards were not set up on that server, so no card request went out. The panel reopened at the same spot at 360 × 480 three times. Check 12 ran through the tray menu's own handlers, and the name fields in check 15 took keys sent through the debugging port.
 - Partly passed 8. On this PC Ctrl+Shift+Space and Ctrl+Alt+Space are held by other apps, so with Ctrl+Alt+C held as well Catch Up had no hotkey. The tray showed that with the badge, and Ctrl+Alt+C worked again once freed. The switch to Ctrl+Shift+Space could not be seen here.
-- Partly passed 13. A panel that is already open keeps running when the web app stops. Can't reach Catch Up shows on the next load and cleared by itself within 4 seconds of the web app coming back.
+- Partly passed 13. A panel that is already open keeps running when the web app stops. Can't reach Catch Up shows on the next load and cleared by itself on its first check after the web app came back (it checks every 4 seconds).
 
 1. Start the web app, then run `npm start` here. The panel appears in the bottom right corner, frameless and above other windows. The tray shows a hollow ring.
 2. Start listening with Apps on this computer, then play a YouTube video in Chrome. The level meter moves. With `CATCHUP_DEVTOOLS` set to `1`, the console shows the audio track's deviceId as `loopbackWithoutChrome`.
