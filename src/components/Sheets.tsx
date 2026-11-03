@@ -58,6 +58,12 @@ export function Sheet({
   const ref = useRef<HTMLDialogElement>(null);
   const returnTo = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  // The body stays mounted until the dialog's close event. A sheet opened from this one (Settings
+  // from the phone Menu) reads its opener in an effect, after React applied the switch, so the
+  // button that opened it must still be in this dialog then. Otherwise focus lands on the page
+  // body and Esc sends it to the big button instead of back to Menu.
+  const [mounted, setMounted] = useState(open);
+  if (open && !mounted) setMounted(true);
 
   useEffect(() => {
     const dialog = ref.current;
@@ -85,6 +91,7 @@ export function Sheet({
     returnTo.current = null;
     const dialog = ref.current;
     if (dialog) RETURN_TARGETS.delete(dialog);
+    setMounted(false);
     onClose();
     // Return focus to the opener unless something else already took it (for example the consent box
     // or another sheet). An opener that is gone hands focus to the big button.
@@ -107,7 +114,7 @@ export function Sheet({
       }}
       lang="en"
     >
-      {open ? (
+      {open || mounted ? (
         <div className="cu-sheet-inner">
           <div className="cu-sheet-head">
             <h2 id={titleId} className="cu-sheet-title">

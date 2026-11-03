@@ -2079,7 +2079,10 @@ html[data-boot="app"] .cu-app:not([data-layout^="app"]) {
   padding: 0 0 0 12px;
 }
 
-/* Phone, 480 px and narrower, portrait first */
+/* Phone, 480 px and narrower, portrait first. The page scrolls, and the fixed thumb zone at the
+   bottom holds the big button alone, 105 px plus the bottom inset (at least 12 px), so 117 px, or
+   139 px above a home indicator, and the card keeps the screen. The tick, the window chips, Pause
+   and Earlier sit in .cu-phone-tools and scroll with the content, right above the thumb zone. */
 
 .cu-panel[data-surface="phone"] {
   height: auto;
@@ -2092,11 +2095,8 @@ html[data-boot="app"] .cu-app:not([data-layout^="app"]) {
   flex: 1 0 auto;
   overflow: visible;
 }
-.cu-panel[data-surface="phone"] .cu-action-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
-}
+/* The status row keeps wrapping when it runs out of room (320 px, or a narrow computer window that
+   also shows the source chip), because the panel clips and Menu would slide past the right edge. */
 .cu-panel[data-surface="phone"] .cu-status {
   min-height: 48px;
   padding-top: env(safe-area-inset-top);
@@ -2109,13 +2109,28 @@ html[data-boot="app"] .cu-app:not([data-layout^="app"]) {
 .cu-panel[data-surface="phone"] .cu-summary-glance {
   font-size: 1.25rem;
 }
+.cu-panel[data-surface="phone"] .cu-phone-tools {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px max(16px, env(safe-area-inset-right)) 16px max(16px, env(safe-area-inset-left));
+  border-top: 1px solid var(--cu-border);
+}
+.cu-panel[data-surface="phone"] .cu-action-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  gap: 0;
+  padding: 8px max(16px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom))
+    max(16px, env(safe-area-inset-left));
+}
 .cu-panel[data-surface="phone"] .cu-big {
   min-height: 96px;
 }
-.cu-panel[data-surface="phone"] .cu-action-bar {
-  padding-bottom: calc(16px + env(safe-area-inset-bottom));
-  padding-left: max(16px, env(safe-area-inset-left));
-  padding-right: max(16px, env(safe-area-inset-right));
+/* Keyboard focus and scrollIntoView keep what they reveal above the thumb zone (WCAG 2.4.11). */
+html:has(.cu-panel[data-surface="phone"]) {
+  scroll-padding-bottom: calc(132px + env(safe-area-inset-bottom));
 }
 
 @media (max-width: 480px) {

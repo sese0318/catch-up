@@ -63,6 +63,15 @@ function isCompactSurface(surface: PanelSurface): boolean {
   return surface === "pip" || surface === "app-compact";
 }
 
+/** True when the element shows a keyboard focus ring (not after a mouse click). */
+function isFocusVisible(el: Element): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return false; // an engine without the selector
+  }
+}
+
 function LangSelect({ surface }: { surface: PanelSurface }) {
   const { settings } = useSettings();
   const store = useSettingsStore();
@@ -341,9 +350,17 @@ function CardArea({ surface }: { surface: PanelSurface }) {
   const currentId = session.core.currentId;
 
   // A new press and a new card start at the top, so Asked you and the stall line are never cut off.
+  // A keyboard user who pressed a card control (a language chip, Further back) keeps it in view
+  // instead, because focus stays on it and a focus ring scrolled out of sight is lost.
   useLayoutEffect(() => {
     const area = ref.current;
     if (!area) return;
+    // Not instanceof, the floating window's elements come from another realm.
+    const active = area.ownerDocument.activeElement;
+    if (active && active !== area && area.contains(active) && isFocusVisible(active)) {
+      if (typeof active.scrollIntoView === "function") active.scrollIntoView({ block: "nearest" });
+      return;
+    }
     area.scrollTop = 0;
     // On phones and short windows the page scrolls instead, so bring the panel top back into view.
     const panel = area.closest<HTMLElement>(".cu-panel");
@@ -456,6 +473,8 @@ function BigButton({ surface }: { surface: PanelSurface }) {
     lastLiveSource: session.lastLiveSource,
   });
   const reasonId = `cu-btn-reason-${surface}`;
+  // On phones the reason rides inside the button, so the fixed thumb zone stays one button tall.
+  const reasonInside = surface === "phone";
   const desktopHotkey = session.desktop.hotkey;
   const accelerator = desktopHotkey?.registered ? desktopHotkey.accelerator : null;
   const hint = hotkeyText(surface, accelerator);
@@ -527,6 +546,7 @@ function BigButton({ surface }: { surface: PanelSurface }) {
       break;
   }
 
+  const inlineReason = reasonInside && reason !== null;
   return (
     <div className="cu-big-wrap">
       <button
@@ -537,16 +557,23 @@ function BigButton({ surface }: { surface: PanelSurface }) {
         aria-disabled={disabled || undefined}
         aria-describedby={reason ? reasonId : undefined}
         aria-keyshortcuts={mode.kind === "catch" ? (accelerator ?? WEB_HOTKEY.aria) : mode.kind === "cancel" ? "Escape" : undefined}
-        aria-label={name}
+        // With the reason inside, the name stays the label and the reason is only the description.
+        aria-label={inlineReason ? main : name}
         onPointerDown={onPointerDown}
         onKeyDown={onKeyDown}
         onClick={onClick}
         lang="en"
       >
         <span className="cu-big-main">{main}</span>
-        {sub ? <span className="cu-big-sub">{sub}</span> : null}
+        {inlineReason ? (
+          <span id={reasonId} className="cu-big-sub">
+            {reason}
+          </span>
+        ) : sub ? (
+          <span className="cu-big-sub">{sub}</span>
+        ) : null}
       </button>
-      {reason ? (
+      {reason && !inlineReason ? (
         <p id={reasonId} className="cu-big-reason" lang="en">
           {reason}
         </p>
@@ -606,6 +633,22 @@ function ActionBar({ surface }: { surface: PanelSurface }) {
   const session = useSession();
   const capture = session.capture;
   const live = capture.state === "listening" || capture.state === "starting";
+  if (surface === "phone") {
+    // The fixed thumb zone holds the big button alone, so the card keeps the screen. The tick, the
+    // window chips, Pause and Earlier scroll with the content, in the same order, right above it.
+    return (
+      <>
+        <div className="cu-phone-tools">
+          {!live ? <ConsentRow compact={false} /> : null}
+          <WindowChips />
+          <SecondaryRow surface={surface} />
+        </div>
+        <div className="cu-action-bar">
+          <BigButton surface={surface} />
+        </div>
+      </>
+    );
+  }
   return (
     <div className="cu-action-bar">
       {!live ? <ConsentRow compact={isCompactSurface(surface)} /> : null}
