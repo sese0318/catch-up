@@ -319,6 +319,126 @@ describe("capture engine, mic", () => {
     expect(insecure.env.getUserMedia).not.toHaveBeenCalled();
   });
 
+  it.each(["mic", "tab"] as const)("stops %s tracks when the worklet node fails to start", async (kind) => {
+    const { engine, streams } = setup({
+      createWorkletNode: () => {
+        throw new Error("worklet unavailable");
+      },
+    });
+    await expect(engine.start({ kind })).rejects.toMatchObject({ code: "unsupported" });
+    await flush();
+    expect(streams).toHaveLength(1);
+    expect([...streams[0].audio, ...streams[0].video].every((track) => track.stopped)).toBe(true);
+    expect(engine.getStatus()).toEqual({ state: "error", source: kind, code: "unsupported" });
+  });
+
+  it("stops a share accepted after the worklet module failed", async () => {
+    let grant!: (stream: MediaStreamLike) => void;
+    const stream = new FakeStream([new FakeTrack("audio")], [new FakeTrack("video")]);
+    const { engine } = setup({
+      getDisplayMedia: () => new Promise((resolve) => { grant = resolve; }),
+      createAudioContext: (rate) => {
+        const ctx = new FakeContext(rate ?? 48_000);
+        ctx.audioWorklet.addModule.mockRejectedValue(new Error("module unavailable"));
+        return ctx;
+      },
+    });
+    await expect(engine.start({ kind: "tab" })).rejects.toMatchObject({ code: "unsupported" });
+    grant(stream);
+    await flush();
+    expect([...stream.audio, ...stream.video].every((track) => track.stopped)).toBe(true);
+    expect(engine.getStatus()).toEqual({ state: "error", source: "tab", code: "unsupported" });
+  });
+
+  it("stops a late mic grant when a pending worklet fails after pause", async () => {
+    let grant!: (stream: MediaStreamLike) => void;
+    let rejectModule!: (error: Error) => void;
+    const stream = new FakeStream([new FakeTrack("audio")]);
+    const { engine } = setup({
+      getUserMedia: () => new Promise((resolve) => { grant = resolve; }),
+      createAudioContext: (rate) => {
+        const ctx = new FakeContext(rate ?? 48_000);
+        ctx.audioWorklet.addModule.mockImplementation(() => new Promise((_, reject) => { rejectModule = reject; }));
+        return ctx;
+      },
+    });
+    const started = engine.start({ kind: "mic" });
+    await engine.pause();
+    rejectModule(new Error("module unavailable"));
+    await started;
+    grant(stream);
+    await flush();
+    expect(stream.audio[0].stopped).toBe(true);
+    expect(engine.getStatus()).toEqual({ state: "paused", source: "mic", reason: "user" });
+  });
+
+  it("pause stops a granted mic without waiting for a pending worklet module", async () => {
+    let resolveModule!: () => void;
+    const { engine, streams } = setup({
+      createAudioContext: (rate) => {
+        const ctx = new FakeContext(rate ?? 48_000);
+        ctx.audioWorklet.addModule.mockImplementation(() => new Promise<undefined>((resolve) => { resolveModule = () => resolve(undefined); }));
+        return ctx;
+      },
+    });
+    const started = engine.start({ kind: "mic" });
+    await flush();
+    expect(streams[0].audio[0].stopped).toBe(false);
+    await engine.pause();
+    expect(streams[0].audio[0].stopped).toBe(true);
+    resolveModule();
+    await started;
+  });
+
+  it("stops a late share grant after stop while its worklet module is still pending", async () => {
+    let grant!: (stream: MediaStreamLike) => void;
+    let resolveModule!: () => void;
+    const stream = new FakeStream([new FakeTrack("audio")], [new FakeTrack("video")]);
+    const { engine } = setup({
+      getDisplayMedia: () => new Promise((resolve) => { grant = resolve; }),
+      createAudioContext: (rate) => {
+        const ctx = new FakeContext(rate ?? 48_000);
+        ctx.audioWorklet.addModule.mockImplementation(() => new Promise<undefined>((resolve) => { resolveModule = () => resolve(undefined); }));
+        return ctx;
+      },
+    });
+    const started = engine.start({ kind: "tab" });
+    await engine.stop();
+    grant(stream);
+    await flush();
+    expect([...stream.audio, ...stream.video].every((track) => track.stopped)).toBe(true);
+    resolveModule();
+    await started;
+  });
+
+  it("a replaced start stops only its own late media grant", async () => {
+    let grantOld!: (stream: MediaStreamLike) => void;
+    let resolveModule!: () => void;
+    const oldStream = new FakeStream([new FakeTrack("audio")]);
+    const currentStream = new FakeStream([new FakeTrack("audio")]);
+    const { engine } = setup({
+      getUserMedia: vi.fn()
+        .mockImplementationOnce(() => new Promise((resolve) => { grantOld = resolve; }))
+        .mockResolvedValueOnce(currentStream),
+      createAudioContext: (rate) => {
+        const ctx = new FakeContext(rate ?? 48_000);
+        ctx.audioWorklet.addModule.mockImplementation(() => new Promise<undefined>((resolve) => { resolveModule = () => resolve(undefined); }));
+        return ctx;
+      },
+    });
+    const oldStart = engine.start({ kind: "mic" });
+    const currentStart = engine.start({ kind: "mic" });
+    grantOld(oldStream);
+    await flush();
+    expect(oldStream.audio[0].stopped).toBe(true);
+    expect(currentStream.audio[0].stopped).toBe(false);
+    resolveModule();
+    await Promise.all([oldStart, currentStart]);
+    expect(engine.getStatus()).toMatchObject({ state: "listening", source: "mic" });
+    expect(currentStream.audio[0].stopped).toBe(false);
+    await engine.pause();
+  });
+
   it("marks a gap on mute so a snapshot never glues audio across it", async () => {
     const { engine, nodes, streams, events } = setup();
     await engine.start({ kind: "mic" });

@@ -24,7 +24,7 @@ import {
 import { LOCAL_CLIENT_KEY, type CardHandlerDeps, type PressLogEntry, type ServerEnv } from "@/lib/providers/types";
 import { CLIPS_PATH, CLIP_SETS, EVAL_DIR, clipsInSet, loadClipsFile, mockFixtureFor, pressMetaFor, type ClipSet, type ClipsFile, type EvalClip } from "./clips";
 import { renderSummaryMarkdown, summarizeRoute, type PressRecord, type RouteSummary } from "./metrics";
-import { buildCardRequest, collectPress, type CollectedPress } from "./press";
+import { buildCardRequest, collectPressWithTimeout, type CollectedPress } from "./press";
 
 const ROOT = resolve(EVAL_DIR, "..");
 const DEFAULT_AUDIO_DIR = join(EVAL_DIR, "clips");
@@ -47,7 +47,7 @@ const HELP = `Catch Up eval
   --press-time WHEN  script (default) or now. Use now for runs that save cached sample cards
   --out DIR          results folder, default eval/results
   --dry-run          check the scripts, the audio and the headers, then stop without sending
-  --summary-only     rebuild eval/results/summary.md from the newest raw file of each route
+  --summary-only     rebuild the matching summary (uses --set and --press-time)
   --help             show this
 
 Make the synthetic clips first with
@@ -237,31 +237,6 @@ function pickRoutes(asked: string[], target: Target): RoutePreference[] {
   return ready;
 }
 
-async function withTimeout(work: Promise<CollectedPress>, controller: AbortController, t0: number): Promise<CollectedPress> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<CollectedPress>((done) => {
-    timer = setTimeout(() => {
-      controller.abort();
-      done({
-        httpStatus: 0,
-        stages: [],
-        firstTokenMs: null,
-        cardMs: null,
-        totalMs: performance.now() - t0,
-        card: null,
-        error: null,
-        failure: "client_timeout",
-        invalidEvents: 0,
-      });
-    }, CLIENT_TIMEOUT_MS);
-  });
-  try {
-    return await Promise.race([work, timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
 interface RunOptions {
   route: RoutePreference;
   runs: number;
@@ -295,8 +270,13 @@ async function runRoute(o: RunOptions): Promise<RawRecord[]> {
       const t0 = performance.now();
       let collected: CollectedPress;
       try {
-        const res = await o.target.send(request, clientKey, (entry) => logs.push(entry));
-        collected = await withTimeout(collectPress(res, () => performance.now(), t0), controller, t0);
+        collected = await collectPressWithTimeout(
+          () => o.target.send(request, clientKey, (entry) => logs.push(entry)),
+          controller,
+          () => performance.now(),
+          t0,
+          CLIENT_TIMEOUT_MS,
+        );
       } catch (error) {
         if (error instanceof Error && error.message === "not implemented") {
           fail("handleCardRequest is still a stub. Run the eval once the server lane has landed.");
@@ -360,17 +340,47 @@ export function pressTimeLabel(file: Pick<ClipsFile, "referenceTime" | "tz">): s
   return `${weekday} ${MONTH_NAMES[Number(m[2]) - 1]} ${Number(m[3])} ${m[1]} at ${m[4]}:${m[5]} in \`${file.tz}\`, unless a clip sets its own`;
 }
 
-/** Rebuilds the summary from the newest raw file of each route. */
-function writeSummary(outDir: string, file: ClipsFile): RouteSummary[] {
-  const rawDir = join(outDir, "raw");
-  const newest = new Map<RoutePreference, { file: string; raw: RawRun }>();
-  for (const entry of readRawRuns(rawDir)) {
+export interface RawRunFile {
+  file: string;
+  raw: RawRun;
+}
+
+/** Compare only matching datasets, and keep sample/cache runs out of the benchmark. */
+export function selectSummaryRuns(
+  entries: readonly RawRunFile[],
+  set: ClipSet,
+  pressTime: "script" | "now",
+): RawRunFile[] {
+  const candidates = entries.filter(({ raw }) => raw.set === set && (raw.pressTime ?? "script") === pressTime);
+  const latest = candidates.reduce<RawRunFile | null>(
+    (newest, entry) => !newest || entry.raw.startedAt > newest.raw.startedAt ? entry : newest,
+    null,
+  );
+  if (!latest) return [];
+  const cohort = (raw: RawRun) => JSON.stringify([
+    [...raw.clipIds].sort(), raw.cardLang, raw.audio.dir, raw.audio.synthetic, raw.clipsSha256,
+    raw.runs, raw.mode, raw.baseUrl ?? null,
+  ]);
+  const wanted = cohort(latest.raw);
+  const newest = new Map<RoutePreference, RawRunFile>();
+  for (const entry of candidates) {
+    if (cohort(entry.raw) !== wanted) continue;
     const current = newest.get(entry.raw.route);
     if (!current || entry.raw.startedAt > current.raw.startedAt) newest.set(entry.raw.route, entry);
   }
   const order: RoutePreference[] = ["open_weights", "meta_api", "auto", "mock"];
-  const chosen = order.map((r) => newest.get(r)).filter((e): e is { file: string; raw: RawRun } => e !== undefined);
-  if (chosen.length === 0) fail(`No raw results in ${rel(rawDir)} yet.`);
+  return order.map((r) => newest.get(r)).filter((entry): entry is RawRunFile => entry !== undefined);
+}
+
+export function summaryStem(set: ClipSet, pressTime: "script" | "now"): string {
+  return set === "eval" && pressTime === "script" ? "summary" : `${set}-${pressTime}-summary`;
+}
+
+/** Rebuild one purpose's summary from the newest coherent dataset across routes. */
+function writeSummary(outDir: string, file: ClipsFile, set: ClipSet, pressTime: "script" | "now"): RouteSummary[] {
+  const rawDir = join(outDir, "raw");
+  const chosen = selectSummaryRuns(readRawRuns(rawDir), set, pressTime);
+  if (chosen.length === 0) fail(`No ${set} results with ${pressTime} press time in ${rel(rawDir)} yet.`);
   const routes = chosen.map(({ raw }) => summarizeRoute(raw.route, raw.records, file.clips));
   const synthetic = chosen.map(({ raw }) => raw.audio.synthetic);
   const audio = synthetic.every(Boolean)
@@ -389,9 +399,10 @@ function writeSummary(outDir: string, file: ClipsFile): RouteSummary[] {
     routes,
   });
   mkdirSync(outDir, { recursive: true });
-  writeFileSync(join(outDir, "summary.md"), markdown);
-  writeFileSync(join(outDir, "summary.json"), `${JSON.stringify({ generatedAt: new Date().toISOString(), routes }, null, 2)}\n`);
-  console.log(`Wrote ${rel(join(outDir, "summary.md"))} and summary.json.`);
+  const stem = summaryStem(set, pressTime);
+  writeFileSync(join(outDir, `${stem}.md`), markdown);
+  writeFileSync(join(outDir, `${stem}.json`), `${JSON.stringify({ generatedAt: new Date().toISOString(), routes }, null, 2)}\n`);
+  console.log(`Wrote ${rel(join(outDir, `${stem}.md`))} and ${stem}.json.`);
   return routes;
 }
 
@@ -422,13 +433,14 @@ async function main(argv: string[]): Promise<number> {
   }
   const file = loadClipsFile(CLIPS_PATH);
   const outDir = resolve(ROOT, values.out ?? DEFAULT_OUT_DIR);
-  if (values["summary-only"]) {
-    writeSummary(outDir, file);
-    return 0;
-  }
-
   const set = (values.set ?? "eval") as ClipSet;
   if (!CLIP_SETS.includes(set)) fail(`Unknown set ${set}. Use ${CLIP_SETS.join(", ")}.`);
+  const pressTime = values["press-time"] ?? "script";
+  if (pressTime !== "script" && pressTime !== "now") fail("--press-time takes script or now.");
+  if (values["summary-only"]) {
+    writeSummary(outDir, file, set, pressTime);
+    return 0;
+  }
   let clips = clipsInSet(file, set);
   const only = listArg(values.clip);
   if (only.length > 0) {
@@ -443,8 +455,6 @@ async function main(argv: string[]): Promise<number> {
   if (!Number.isInteger(runs) || runs < 1 || runs > 10) fail("--runs takes a whole number from 1 to 10.");
   const mockMode = (values["mock-mode"] ?? "ok") as MockMode;
   if (!MOCK_MODES.includes(mockMode)) fail(`--mock-mode takes ${MOCK_MODES.join(", ")}.`);
-  const pressTime = values["press-time"] ?? "script";
-  if (pressTime !== "script" && pressTime !== "now") fail("--press-time takes script or now.");
   const audioDir = resolve(ROOT, values["audio-dir"] ?? DEFAULT_AUDIO_DIR);
   const audio = loadAudio(clips, audioDir);
 
@@ -494,7 +504,7 @@ async function main(argv: string[]): Promise<number> {
     cards += records.filter((r) => r.card).length;
   }
 
-  const summaries = writeSummary(outDir, file);
+  const summaries = writeSummary(outDir, file, set, pressTime);
   for (const s of summaries.filter((x) => routes.includes(x.route))) {
     console.log(`${s.route.padEnd(12)} ${s.cards} cards of ${s.presses} presses, full card p50 ${seconds(s.fullCard.p50)}, p95 ${seconds(s.fullCard.p95)}`);
   }

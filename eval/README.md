@@ -49,7 +49,7 @@ Every press sends one whole clip with the press time from `clips.json`, so relat
 | Asked you accuracy | cards that show the Asked you banner exactly when the script asks the listener |
 | False alarms | Asked you on clips where the script asked someone else or no one |
 | Name, number and date recall | script names, numbers and dates found in the card's facts, with other spellings and readings counted, and a date counted only once it is resolved to a month and day |
-| Valid JSON first try | cards that parsed on the route asked for, without the backup route |
+| Valid JSON first try | cards that parsed after exactly one provider attempt, without a retry or backup route. Older results without attempt telemetry are excluded |
 | Fallback rate | cards that Auto served from the Meta Model API after Muse Spark Open failed |
 
 A second table checks all four ask states (you, room, mentioned and none), heard, the say line, the say language, the card language, teen and tens numbers marked Check, term recall and Unformatted cards. A third shows every clip's ask on every run.
@@ -58,7 +58,9 @@ Times are measured inside the eval process, so they leave out the upload from a 
 
 ## Results
 
-`eval/results/raw` holds every press with its card, timings and status. It is git-ignored, because consent covers measurement, not publishing. `eval/results/summary.md` holds the tables for the README and the video, and `summary.json` the same numbers. Both are rebuilt from the newest raw file of each route, and mock runs get their own section that says no model was called.
+`eval/results/raw` holds every press with its card, timings and status. It is git-ignored, because consent covers measurement, not publishing. `eval/results/summary.md` holds the scripted eval tables for the README and the video, and `summary.json` the same numbers. The newest dataset selects the comparison, and only matching clips, languages, audio sources, script versions, run counts and execution modes are compared across routes. Mock runs get their own section that says no model was called.
+
+Sample runs with `--set samples --press-time now` write `samples-now-summary.md` and `samples-now-summary.json` instead, so saving public sample cards never replaces the benchmark. Other sets and clock modes likewise get separate summary names. `--summary-only` rebuilds the scripted eval by default. Add `--set samples --press-time now` to rebuild the saved-sample summary.
 
 ## Saved sample cards
 

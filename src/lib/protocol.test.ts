@@ -25,6 +25,7 @@ import {
   isEventStream,
   normalizeHint,
   normalizeNames,
+  parseStreamEvent,
   readEventStream,
   toCard,
   toLocalIso,
@@ -207,6 +208,15 @@ describe("event stream", () => {
   it("parses every event back unchanged", async () => {
     const bytes = allEvents.map(encodeEventBytes);
     expect(await collect(streamOf(bytes))).toEqual(allEvents);
+  });
+
+  it("keeps provider attempt counts and accepts legacy cards without them", async () => {
+    const counted: StreamEvent = { event: "card", data: { ...wire, meta: { ...wire.meta, attempts: 2 } } };
+    expect(await collect(streamOf([encodeEventBytes(counted)]))).toEqual([counted]);
+    expect(parseStreamEvent("card", JSON.stringify(wire))).toEqual({ ok: true, event: { event: "card", data: wire } });
+    for (const attempts of [0, -1, 1.5, "2"]) {
+      expect(parseStreamEvent("card", JSON.stringify({ ...wire, meta: { ...wire.meta, attempts } })).ok).toBe(false);
+    }
   });
 
   it("survives a split at every byte, including inside multibyte characters", async () => {

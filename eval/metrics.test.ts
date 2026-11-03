@@ -47,6 +47,7 @@ const wire = (over: Partial<CardBody> = {}, meta: Partial<ServerCardMeta> = {}):
     route: "open_weights",
     model: "meta-models/muse-spark-open-1026",
     parse: "clean",
+    attempts: 1,
     timing: { totalMs: 3000, bytes: 864_044 },
     ...meta,
   },
@@ -312,6 +313,17 @@ describe("summarizeRoute", () => {
     expect(s.cleanJson).toEqual({ num: 2, den: 5 });
     expect(s.unformatted).toEqual({ num: 1, den: 5 });
     expect(s.fallbacks).toEqual({ num: 1, den: 5 });
+  });
+
+  it("does not claim retries or legacy results as first-try JSON successes", () => {
+    const measured = summarizeRoute("open_weights", [
+      record("a-you", 1, wire()),
+      record("a-you", 2, wire({}, { attempts: 2 })),
+      record("a-you", 3, wire({}, { attempts: undefined })),
+    ], clips);
+    expect(measured.validJsonFirstTry).toEqual({ num: 1, den: 3 });
+    expect(measured.cards).toBe(3);
+    expect(measured.unformatted).toEqual({ num: 0, den: 3 });
   });
 
   it("takes latency percentiles over cards only", () => {

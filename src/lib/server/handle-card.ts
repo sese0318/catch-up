@@ -229,6 +229,7 @@ async function runPress(
   let lastError: ProviderError | undefined;
   let fallbackAtMs: number | undefined;
   let fallbackCause: ProviderFailure | undefined;
+  let attempts = 0;
 
   const log = (entry: Omit<PressLogEntry, "at" | "windowSec" | "sentSec" | "bytes" | "fallback">) =>
     job.log({
@@ -242,7 +243,7 @@ async function runPress(
 
   const sendCard = (body: CardBody, server: Omit<ServerCardMeta, "timing">, firstTokenMs?: number, asrMs?: number) => {
     const timing = { totalMs: elapsed(), firstTokenMs, asrMs, fallbackAtMs, bytes: job.bytes };
-    const card = WireCard.safeParse({ ...body, meta: { ...server, timing } });
+    const card = WireCard.safeParse({ ...body, meta: { ...server, attempts, timing } });
     if (!card.success) return false;
     send({ event: "card", data: card.data });
     send({ event: "done", data: {} });
@@ -280,6 +281,7 @@ async function runPress(
       }
       let firstTokenMs: number | undefined;
       const watchdogMs = !job.pinned && queue.length > 0 ? job.env.autoFallbackMs : null;
+      attempts += 1;
       const attempt = await runAttempt(providers[id], job, stop.signal, watchdogMs, () => {
         firstTokenMs = elapsed();
         send({ event: "stage", data: { name: "writing", ms: firstTokenMs } });

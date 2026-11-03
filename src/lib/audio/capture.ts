@@ -453,11 +453,6 @@ export class CaptureEngineCore implements CaptureEngine {
     try {
       let ctx = this.ctx;
       if (!ctx) throw new CaptureError("unsupported");
-      let node = await this.ensureWorklet(env, ctx);
-      if (gen !== this.gen) {
-        void media?.then(stopStream, noop);
-        return;
-      }
       const session: Session = {
         gen,
         startedAt: Date.now(),
@@ -470,6 +465,15 @@ export class CaptureEngineCore implements CaptureEngine {
         wakeLock: null,
       };
       this.session = session;
+      // Permission and worklet loading run independently. Own each granted stream at once,
+      // so pause can stop it while the module is pending, and late grants cannot survive
+      // a failed, stopped or replaced start or overwrite the next session's stream.
+      void media?.then((granted) => {
+        if (this.session === session && gen === this.gen) session.stream = granted;
+        else stopStream(granted);
+      }, noop);
+      let node = await this.ensureWorklet(env, ctx);
+      if (gen !== this.gen) return;
 
       if (spec.kind === "sample") {
         let buffer: AudioBufferLike;

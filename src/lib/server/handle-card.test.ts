@@ -106,7 +106,7 @@ describe("POST /api/card, the happy path", () => {
     expect(a.runs).toBe(0);
 
     const card = cardOf(events);
-    expect(card).toMatchObject({ ...sampleCard, meta: { route: "open_weights", model: B_MODEL, parse: "clean" } });
+    expect(card).toMatchObject({ ...sampleCard, meta: { route: "open_weights", model: B_MODEL, parse: "clean", attempts: 1 } });
     expect(card.meta.fallbackFrom).toBeUndefined();
     expect(card.meta.timing.bytes).toBe(wav.byteLength);
     expect(card.meta.timing.firstTokenMs).toBeGreaterThanOrEqual(0);
@@ -160,7 +160,7 @@ describe("Auto fallback", () => {
     const events = await eventsOf(await handleCardRequest(cardRequest(), deps));
     expect(namesOf(events)).toEqual(["stage:received", "stage:fallback", "stage:writing", "card", "done"]);
     const card = cardOf(events);
-    expect(card.meta).toMatchObject({ route: "meta_api", model: A_MODEL, fallbackFrom: "open_weights", fallbackCause: "http" });
+    expect(card.meta).toMatchObject({ route: "meta_api", model: A_MODEL, fallbackFrom: "open_weights", fallbackCause: "http", attempts: 2 });
     expect(card.meta.timing.fallbackAtMs).toBeGreaterThanOrEqual(0);
     expect(card.meta.timing.asrMs).toBe(4);
     expect([b.runs, a.runs]).toEqual([1, 1]);
@@ -257,7 +257,7 @@ describe("Auto fallback", () => {
     const events = await eventsOf(await handleCardRequest(cardRequest(), deps));
     expect(namesOf(events)).toEqual(["stage:received", "card", "done"]);
     expect(calls).toBe(2);
-    expect(cardOf(events).meta.route).toBe("open_weights");
+    expect(cardOf(events).meta).toMatchObject({ route: "open_weights", attempts: 2 });
   });
 
   it("sends an Unformatted card when every route fails but model text exists", async () => {

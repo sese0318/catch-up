@@ -86,3 +86,36 @@ export async function collectPress(res: Response, now: () => number, t0: number)
   out.totalMs = now() - t0;
   return out;
 }
+
+/** Covers the entire HTTP press, including waiting for response headers, with one deadline. */
+export async function collectPressWithTimeout(
+  send: () => Promise<Response>,
+  controller: AbortController,
+  now: () => number,
+  t0: number,
+  timeoutMs: number,
+): Promise<CollectedPress> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<CollectedPress>((done) => {
+    timer = setTimeout(() => {
+      done({
+        httpStatus: 0,
+        stages: [],
+        firstTokenMs: null,
+        cardMs: null,
+        totalMs: now() - t0,
+        card: null,
+        error: null,
+        failure: "client_timeout",
+        invalidEvents: 0,
+      });
+      controller.abort();
+    }, Math.max(0, timeoutMs - (now() - t0)));
+  });
+  try {
+    const work = send().then((res) => collectPress(res, now, t0));
+    return await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   META_HEADER,
   SSE_HEADERS,
@@ -10,7 +10,7 @@ import {
   type WireCard,
 } from "@/lib/protocol";
 import { checkLocalBaseUrl, pressTimeLabel } from "./run";
-import { buildCardRequest, collectPress } from "./press";
+import { buildCardRequest, collectPress, collectPressWithTimeout } from "./press";
 
 const meta: PressMeta = {
   v: 1,
@@ -127,5 +127,53 @@ describe("runner guards", () => {
     expect(pressTimeLabel({ referenceTime: "2026-11-02T10:30:00.000-05:00", tz: "America/New_York" })).toBe(
       "Mon Nov 2 2026 at 10:30 in `America/New_York`, unless a clip sets its own",
     );
+  });
+});
+
+describe("collectPressWithTimeout", () => {
+  afterEach(() => vi.useRealTimers());
+
+  it("aborts a request that never sends response headers", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const send = vi.fn(() => new Promise<Response>((_, reject) => {
+      controller.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+    }));
+    const t0 = Date.now();
+    const pending = collectPressWithTimeout(send, controller, Date.now, t0, 25_000);
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(await pending).toMatchObject({ failure: "client_timeout", totalMs: 25_000, card: null });
+    expect(send).toHaveBeenCalledOnce();
+    expect(controller.signal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("uses the same deadline for headers and the event stream", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const send = () => new Promise<Response>((resolve) => {
+      setTimeout(() => resolve(new Response(new ReadableStream({
+        start(stream) {
+          controller.signal.addEventListener("abort", () => stream.error(new Error("aborted")), { once: true });
+        },
+      }), { headers: SSE_HEADERS })), 10_000);
+    });
+    const pending = collectPressWithTimeout(send, controller, Date.now, Date.now(), 25_000);
+    await vi.advanceTimersByTimeAsync(25_000);
+    expect(await pending).toMatchObject({ failure: "client_timeout", totalMs: 25_000 });
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  it("clears its timer after a successful press", async () => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const result = await collectPressWithTimeout(
+      async () => streamOf([{ event: "card", data: card }, { event: "done", data: {} }]),
+      controller, Date.now, Date.now(), 25_000,
+    );
+    expect(result.card).toEqual(card);
+    expect(result.failure).toBeNull();
+    expect(controller.signal.aborted).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

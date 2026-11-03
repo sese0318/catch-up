@@ -492,7 +492,7 @@ export function summarizeRoute(route: RoutePreference, records: readonly PressRe
     for (const r of [score.names, score.numbers, score.dates, score.terms]) addRecall(row.recall, r);
 
     const parsed = card.meta.parse !== "unformatted" && !card.meta.unformatted;
-    add(s.validJsonFirstTry, parsed && !card.meta.fallbackFrom);
+    add(s.validJsonFirstTry, parsed && card.meta.attempts === 1 && !card.meta.fallbackFrom);
     add(s.cleanJson, card.meta.parse === "clean" && !card.meta.fallbackFrom);
     add(s.unformatted, !parsed);
     add(s.fallbacks, card.meta.fallbackFrom !== undefined);
@@ -603,7 +603,7 @@ export function renderSummaryMarkdown(input: SummaryInput): string {
   if (live.length === 0) out.push("No live route has run yet. Live runs need keys in `.env.local`.", "");
   else out.push(...table(mainHead, live.map(mainRow)), "");
   out.push(
-    "Asked you accuracy counts cards that show the Asked you banner exactly when the script asks the listener. False alarms counts Asked you on clips where the script asked someone else or no one. Recall counts names, numbers and dates from the script that show up in the card's facts. Valid JSON first try counts cards that parsed on the route asked for, without the backup route.",
+    "Asked you accuracy counts cards that show the Asked you banner exactly when the script asks the listener. False alarms counts Asked you on clips where the script asked someone else or no one. Recall counts names, numbers and dates from the script that show up in the card's facts. Valid JSON first try counts cards that parsed in exactly one provider attempt, without a retry or backup route. Older results with no attempt count remain in the denominator but are not claimed as first-try successes.",
     "",
   );
 

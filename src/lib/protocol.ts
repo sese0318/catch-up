@@ -277,6 +277,9 @@ export const ServerCardMeta = z.object({
   transcript: z.string().optional(),
   unformatted: z.literal(true).optional(),
   parse: ParseQuality,
+  // Provider invocations for this press, including same-route retries and fallback.
+  // Optional so older saved eval results remain readable. Missing means unknown, not one.
+  attempts: z.number().int().positive().optional(),
   timing: ServerTiming,
   usage: TokenUsage.optional(),
 });
