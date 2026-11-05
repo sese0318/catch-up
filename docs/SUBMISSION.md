@@ -8,7 +8,7 @@ The submission route is Muse Voice Transcribe `muse-voice-transcribe-1.0` follow
 
 Show the one-press recovery flow, the source controls, the card in the chosen language and the receipt. Do not describe this build as using Muse Spark Open, hearing audio without a transcription step, comparing providers, or surviving one provider's outage through another. The optional Baseten adapter does not demonstrate an open-weight model submission.
 
-## Release gates
+## Submission checks
 
 Record a result and evidence for each gate. A key in the environment or a green health response alone does not pass the live API gate.
 
@@ -24,13 +24,15 @@ Record a result and evidence for each gate. A key in the environment or a green 
 | Accessibility | Keyboard-only use and an actual screen-reader pass on the final UI |
 | Deployment | Exact deployment inspected, server-only secret set, Meta route active, no dev clips or mock mode, external access checked |
 | Public materials | Repository contents and attribution reviewed, real demo video under 3 minutes, working product and repository URLs |
-| Owner actions | Owner approves publishing the repository, deployment, video and any post, then approves the final submission |
+| Owner actions | Repository and Vercel publication are authorized. Approval for the final video, any post and the final submission remains separate |
 
-No consented recordings were supplied at the start of this work. Do not mark the public samples, real voice evaluation or filmed demo gates complete until the recordings exist. Keep this checklist's evidence current when a gate is completed.
+The owner authorized publication of the [GitHub repository](https://github.com/sese0318/catch-up) and the [Vercel app](https://catch-up-lyart.vercel.app), with recording deferred until implementation and technical verification are finished. Both are public. No consented recordings have been supplied, so public samples, real voice evaluation and the filmed demo remain incomplete. Those remaining recording tasks do not revoke the current publication approval. Keep this checklist's evidence current as each check is completed.
 
 Recorded evidence on November 4, 2026 confirms model access and real API card generation. The [initial baseline](../eval/results/meta-only-synthetic-2026-11-04.md) exposed unsupported content and an incorrect no-speech judgment. A transcript-focused prompt was followed by [33 synthetic runs](../eval/results/meta-only-followup-2026-11-04.md), all returning cards, but with remaining ask classification and fact recall errors. That batch predates the literal-quote guard and is not a validation of it. Local browser checks returned an English card and a Japanese transcript redo. The current 513-test suite, production build, type checks, lint and copy checks pass.
 
-After the guard was added, one request through the local production HTTP server returned a real card in 12.8 seconds with mock mode off. The production page showed no public samples and the Meta attribution. This verifies one final-build interaction. A retrospective audit of the earlier batch found 3 quotes absent from their transcripts, which the guard would remove, but it does not verify the rest of those cards. No Vercel deployment has been created. Human speech, deployed flows, the final film and the remaining release gates still need their own evidence.
+After the guard was added, one request through the local production HTTP server returned a real card in 12.8 seconds with mock mode off. The production page showed no public samples and the Meta attribution. This verifies one final-build interaction. A retrospective audit of the earlier batch found 3 quotes absent from their transcripts, which the guard would remove, but it does not verify the rest of those cards.
+
+The Vercel deployment from commit `205441f` reached Ready. The public alias opened without authentication and showed the Meta footer with no public samples. Health returned HTTP 200, and one 18-second synthetic audio request to the exact deployment returned HTTP 200 and a Meta card in 15.3 seconds. It used one provider attempt, returned clean JSON and ran with mock mode off. The name was misrecognized and the 15% figure was marked uncertain against 50%. This passes a limited deployed integration check, not semantic accuracy or natural-speech validation. Real voice evaluation, phone hardware, screen-reader use, the final film and final submission remain incomplete.
 
 ## Record the public samples
 
@@ -114,6 +116,6 @@ If a response is too slow to fit this plan, change the shot timings while preser
 
 ## Final review packet
 
-Before asking for publication or submission approval, collect the exact repository commit, reviewed deployment URL, real evaluation table, final video file, public voice permissions status and all remaining limitations in one review packet. Redact secrets from terminal windows and browser panels before filming. Do not publish raw evaluation files or private recordings just to make the repository reproducible.
+For the final video and submission review, collect the exact repository commit, verified deployment URL, real evaluation table, final video file, public voice permissions status and all remaining limitations in one review packet. Redact secrets from terminal windows and browser panels before filming. Do not publish raw evaluation files or private recordings just to make the repository reproducible.
 
-The owner has authorized API key setup and live verification. Publishing, posting and submission remain separate owner decisions. A technical check that passes does not itself authorize those actions.
+The owner has authorized API key setup, live verification, public GitHub access and Vercel publication. Do not ask for those approvals again. Public voice recordings, video publication, any post and final submission still require their own owner decisions.

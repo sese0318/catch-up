@@ -6,6 +6,8 @@ Catch Up keeps the last 2 minutes of sound in memory, and nothing leaves your de
 
 Built with Muse Voice Transcribe and Muse Spark on Meta Model API.
 
+[Open Catch Up](https://catch-up-lyart.vercel.app) · [Public source repository](https://github.com/sese0318/catch-up)
+
 ## What the card holds
 
 1. Whether you were just asked something.
@@ -98,9 +100,11 @@ That batch used `card-v2` before the later literal-quote guard was added. The gu
 
 Local browser checks with the updated prompt returned an English card from an 18-second synthetic sample in 9.1 seconds and a Japanese card from the retained transcript in 9.6 seconds. The retained snapshot expired and its audio memory cleared. A separate first live request had timed out at about 19 seconds under the former 20-second cap, with a direct retry in 11.957 seconds. These separate checks are outside the batch statistics. See [the initial baseline](eval/results/meta-only-synthetic-2026-11-04.md) and [the follow-up results and remaining failures](eval/results/meta-only-followup-2026-11-04.md).
 
-After the quote guard was added, one synthetic request through the local production HTTP server returned a card in 12.8 seconds with mock mode off. The production page showed the Meta attribution and no public samples. Type checking, lint and copy checks also pass. This confirms one final-build HTTP interaction, not deployed or natural-speech performance. No Vercel deployment has been created.
+After the quote guard was added, one synthetic request through the local production HTTP server returned a card in 12.8 seconds with mock mode off. The production page showed the Meta attribution and no public samples. Type checking, lint and copy checks also pass.
 
-Public sample clips need written consent from every voice. No such recordings have been supplied yet, so the production sample catalog is empty. Synthetic development clips are excluded from production and must not appear in the submission video. Real voice evaluation, the filmed demo, deployed checks, phone hardware and screen-reader checks remain release gates. See [the submission checklist](docs/SUBMISSION.md) for the current scope and recording steps.
+The public [Vercel app](https://catch-up-lyart.vercel.app) was deployed from commit `205441f` and loaded in a browser without authentication. Its exact deployment returned HTTP 200 for health and for one 18-second synthetic audio request. That request returned a Meta card in 15.3 seconds, with clean JSON, one provider attempt and mock mode disabled. The name was misrecognized and the 15% figure was marked uncertain against 50%, so this is a deployment integration check, not evidence of semantic accuracy or natural-speech performance. No public sample recordings are included.
+
+The owner authorized public repository access and Vercel publication, and chose to record the public samples later while implementation and technical verification proceed. Public sample clips need written consent from every voice. No such recordings have been supplied yet, so the production sample catalog is empty. Synthetic development clips are excluded from production and must not appear in the submission video. Real voice evaluation, the filmed demo, phone hardware and screen-reader checks remain incomplete. See [the submission checklist](docs/SUBMISSION.md) for the current scope and recording steps.
 
 ## Setup
 
