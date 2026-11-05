@@ -24,7 +24,7 @@ import { META_CHAT_BODY_FIELDS, isProviderError, type ProviderError, type Provid
 const ASR_URL = "https://api.meta.ai/v1/asr/transcribe";
 const CHAT_URL = "https://api.meta.ai/v1/chat/completions";
 
-function asrReply(transcript = "So Zephyrine, does Thursday work for the demo?", audioDurationMs = 2000): Response {
+function asrReply(transcript = "So Zephyrine. Does Thursday work for the demo?", audioDurationMs = 2000): Response {
   return Response.json({ sessionId: "s1", transcript, audioDurationMs, turns: [] });
 }
 
@@ -96,7 +96,7 @@ describe("Route A, meta_api on Meta Model API", () => {
       model: "muse-spark-1.3",
       messages: [
         { role: "developer", content: "SYSTEM PROMPT" },
-        { role: "user", content: "card ja\nmeeting en\ntranscript So Zephyrine, does Thursday work for the demo?" },
+        { role: "user", content: "card ja\nmeeting en\ntranscript So Zephyrine. Does Thursday work for the demo?" },
       ],
       stream: true,
       stream_options: { include_usage: true },
@@ -109,7 +109,7 @@ describe("Route A, meta_api on Meta Model API", () => {
 
     expect(result.body).toEqual(sampleCard);
     expect(result.model).toBe("muse-voice-transcribe-1.0 + muse-spark-1.3");
-    expect(result.transcript).toBe("So Zephyrine, does Thursday work for the demo?");
+    expect(result.transcript).toBe("So Zephyrine. Does Thursday work for the demo?");
     expect(result.usage).toMatchObject({ audioSeconds: 2 });
     expect(result.timings.asrMs).toBeGreaterThanOrEqual(0);
   });
@@ -126,6 +126,37 @@ describe("Route A, meta_api on Meta Model API", () => {
     expect(result.model).toBe("muse-spark-1.3");
     expect(result.transcript).toBe("Earlier words");
     expect(result.timings.asrMs).toBeUndefined();
+  });
+
+  it("omits an unsupported quote instead of presenting invented text as transcript evidence", async () => {
+    const transcript = "王伟, 周豹写完了吗? 明天的会改到下午三点半了。玛雅, 你明天下午三点半能来参加吗?";
+    const modelCard = { ...sampleCard, quote: "王伟, 庭园 时间变迁 提供磁盘磁盘?" };
+    const { fetchImpl } = fakeFetch(asrReply(transcript), chatStream({ content: [JSON.stringify(modelCard)] }));
+    const result = await createMetaApiProvider(testEnv(), { fetchImpl }).run(input());
+    expect(result.body).not.toHaveProperty("quote");
+    expect(result.parse).toBe("clamped");
+    expect(result.body.summary).toEqual(modelCard.summary);
+    expect(result.body.facts).toEqual(modelCard.facts);
+    expect(result.transcript).toBe(transcript);
+  });
+
+  it("retains a contiguous mixed-language quote across whitespace and Unicode composition", async () => {
+    const transcript = "Okay, Jose\u0301 said 締め切りは\n 下周三です。あと、教室の予約は？";
+    const modelCard = { ...sampleCard, quote: "José said 締め切りは 下周三です。" };
+    const { fetchImpl, calls } = fakeFetch(chatStream({ content: [JSON.stringify(modelCard)] }));
+    const result = await createMetaApiProvider(testEnv(), { fetchImpl }).run(input({ wav: null, transcript }));
+    expect(result.body.quote).toBe(modelCard.quote);
+    expect(result.parse).toBe("clean");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("does not accept rearranged transcript words as a contiguous quote", async () => {
+    const transcript = "The demo is Thursday. The review is Monday.";
+    const modelCard = { ...sampleCard, quote: "The demo is Monday." };
+    const { fetchImpl } = fakeFetch(chatStream({ content: [JSON.stringify(modelCard)] }));
+    const result = await createMetaApiProvider(testEnv(), { fetchImpl }).run(input({ wav: null, transcript }));
+    expect(result.body).not.toHaveProperty("quote");
+    expect(result.parse).toBe("clamped");
   });
 
   it("retries the transcription once with a plain request field on 400", async () => {

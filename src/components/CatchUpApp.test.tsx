@@ -133,7 +133,7 @@ describe("Catch Up page", () => {
     expect(fakes.engine.start).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Try a sample conversation");
     expect(container.textContent).toContain("An English ask by name");
-    expect(container.textContent).toContain("Built with Muse Spark Open");
+    expect(container.textContent).toContain("Built with Meta Model API");
     expect(container.textContent).toContain("What should Catch Up hear?");
     const big = q<HTMLButtonElement>(".cu-big");
     expect(big?.textContent).toContain("Start listening");

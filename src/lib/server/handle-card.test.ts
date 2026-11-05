@@ -7,7 +7,7 @@ vi.mock("../card/fixtures", async () => (await import("./test-support")).cardFix
 import { HealthResponse, LIMITS, WireCard, type StreamEvent } from "../protocol";
 import { createMockProvider } from "../providers";
 import { forgetMissedSlugs } from "../providers/open-weights";
-import { ProviderError, type CardHandlerDeps, type CardProvider, type PressLogEntry, type ProviderId } from "../providers/types";
+import { AUTO_POLICY, ProviderError, type CardHandlerDeps, type CardProvider, type PressLogEntry, type ProviderId } from "../providers/types";
 import { readServerEnv } from "./env";
 import { pressGuards } from "./guards";
 import { handleCardRequest, handleHealthRequest } from "./handle-card";
@@ -303,20 +303,42 @@ describe("Auto fallback", () => {
     });
   });
 
-  it("stops every provider at 19 s and sends timeout", async () => {
+  it("allows a Meta card that arrives after the former 20 s client limit", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+    const { b, a, providers } = live({
+      a: async ({ signal, onStage }) => {
+        await new Promise((resolve) => setTimeout(resolve, 12_000));
+        onStage({ name: "writing", atMs: 12_000 });
+        await new Promise((resolve) => setTimeout(resolve, 13_000));
+        expect(signal.aborted).toBe(false);
+        return okResult(A_MODEL);
+      },
+    });
+    const { deps, logs } = setup({ providers, env: testEnv({ routePolicy: "meta_api" }) });
+    const pending = eventsOf(await handleCardRequest(cardRequest(), deps));
+    await vi.advanceTimersByTimeAsync(25_000);
+    const events = await pending;
+    expect(namesOf(events)).toEqual(["stage:received", "stage:writing", "card", "done"]);
+    expect(cardOf(events).meta).toMatchObject({ route: "meta_api", attempts: 1, timing: { totalMs: 25_000, firstTokenMs: 12_000 } });
+    expect(b.runs).toBe(0);
+    expect(a.runs).toBe(1);
+    expect(logs[0]).toMatchObject({ status: "ok", ms: { total: 25_000 } });
+  });
+
+  it("stops every provider at the server deadline and sends timeout", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
     const { a, providers } = live({ b: ({ signal }) => untilAborted(signal), a: ({ signal }) => untilAborted(signal) });
     const { deps, logs } = setup({ providers });
     const res = await handleCardRequest(cardRequest(), deps);
     const pending = eventsOf(res);
-    await vi.advanceTimersByTimeAsync(19_000);
+    await vi.advanceTimersByTimeAsync(AUTO_POLICY.serverDeadlineMs);
     const events = await pending;
     expect(namesOf(events)).toEqual(["stage:received", "stage:fallback", "error", "done"]);
     const fallback = events[1];
     expect(fallback.event === "stage" && fallback.data.ms).toBe(8_000);
     expect(errorOf(events)).toEqual({ code: "timeout", retryable: true, stored: false, route: "meta_api", cause: "timeout" });
     expect(a.runs).toBe(1);
-    expect(logs[0]).toMatchObject({ status: "error", code: "timeout", ms: { total: 19_000 } });
+    expect(logs[0]).toMatchObject({ status: "error", code: "timeout", ms: { total: AUTO_POLICY.serverDeadlineMs } });
   });
 
   it("stops and logs aborted when the client goes away", async () => {

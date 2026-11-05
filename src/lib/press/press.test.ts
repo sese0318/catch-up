@@ -373,7 +373,29 @@ describe("press pipeline", () => {
     expect(ofType(cut.events, "error")[0]).toMatchObject({ code: "server_error", sent: true });
   });
 
-  it("says still working at 6 s and gives up at the 20 s hard cap", async () => {
+  it("keeps waiting after 20 s and accepts a Meta card at 25 s", async () => {
+    const { pipeline, events, server, net } = setup({ settings: { route: "meta_api" } });
+    server.handler = (req) => sseResponse([
+      { event: "stage", data: { name: "received" } },
+      { wait: 12_000 },
+      { event: "stage", data: { name: "writing" } },
+      { wait: 13_000 },
+      { event: "card", data: wireA },
+      { event: "done", data: {} },
+    ], req.signal);
+    pipeline.press({ kind: "new", pressedAt: Date.now() });
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(ofType(events, "error")).toHaveLength(0);
+    expect(ofType(events, "card")).toHaveLength(0);
+    expect(pipeline.isBusy()).toBe(true);
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(ofType(events, "card")[0].card.meta).toMatchObject({ route: "meta_api", ms: { total: 25_000 } });
+    expect(ofType(events, "error")).toHaveLength(0);
+    expect(net.requests[0].signal?.aborted).toBe(false);
+    expect(pipeline.isBusy()).toBe(false);
+  });
+
+  it("says still working at 6 s and gives up at the hard cap", async () => {
     const { pipeline, events, server, net } = setup();
     server.handler = (req) => pending(req);
     pipeline.press({ kind: "new", pressedAt: Date.now() });

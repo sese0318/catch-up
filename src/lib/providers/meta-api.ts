@@ -44,6 +44,9 @@ const ASR_RETRY_STATUSES = [400, 415];
 
 const encoder = new TextEncoder();
 
+/** Ignore only Unicode composition and whitespace when checking a claimed verbatim quote. */
+const quoteEvidenceText = (text: string): string => text.normalize("NFC").replace(/\s+/gu, " ").trim();
+
 /** A multipart/form-data body with the request part, then the WAV as the audio part (clip.wav). */
 export function buildAsrMultipart(
   request: MetaAsrRequest,
@@ -194,11 +197,19 @@ export function createMetaApiProvider(env: ServerEnv, options: ProviderOptions =
 
       const parsed = parseCardText(outcome.content, ctx);
       if (!parsed.ok) throw new ProviderError("bad_json", "meta_api", { status: res.status, raw, transcript, model });
+      const cardBody = { ...parsed.body };
+      let quality = parsed.quality;
+      // A quotation is evidence only when its words occur together in the transcript. This check
+      // does not verify the summary, facts or the ASR itself, and never invents a substitute quote.
+      if (cardBody.quote && !quoteEvidenceText(transcript).includes(quoteEvidenceText(cardBody.quote))) {
+        delete cardBody.quote;
+        quality = "clamped";
+      }
       const usage: TokenUsage = { ...outcome.usage, audioSeconds };
       return {
-        body: parsed.body,
+        body: cardBody,
         model,
-        parse: parsed.quality,
+        parse: quality,
         transcript,
         timings: { totalMs: now() - started, firstTokenMs, asrMs },
         usage: compactUsage(usage),

@@ -47,7 +47,7 @@ export const LIMITS = {
   maxTranscriptBytes: 16_000,
   maxMetaHeaderChars: 4_096,
   warmupSec: 5, // under this much memory the button reads Collecting sound
-  hardCapMs: 20_000, // press to card or error, enforced by the client and the server
+  hardCapMs: 30_000, // press to card or error, gives the two-step Meta route room for slower requests
   stillWorkingMs: 6_000,
   autoFallbackMs: 8_000, // Auto starts Route A when Route B has no answer token by then
   snapshotHoldMs: 120_000, // the press snapshot stays for Further back and language redo, then is zeroed
@@ -55,7 +55,7 @@ export const LIMITS = {
   soundOkFoldMs: 10_000,
 } as const;
 
-/** Targets from ux-spec 3 until gate 1 measures them. */
+/** Original ux-spec 3 optimization targets, not measured response-time guarantees. */
 export const TIMING_BUDGET = {
   stallLineMs: 0,
   captureMs: 100, // snapshot, slice, normalize and encode

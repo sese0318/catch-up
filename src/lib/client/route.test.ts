@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { HealthResponse } from "../protocol";
+import { LIMITS, type HealthResponse } from "../protocol";
 import { otherRoute, parseHealth, parseMockParam, planRoute, type HealthView } from "./route";
 
 function health(patch: { mock?: boolean; b?: boolean; a?: boolean; live?: boolean } = {}): HealthView {
@@ -14,7 +14,7 @@ function health(patch: { mock?: boolean; b?: boolean; a?: boolean; live?: boolea
       open_weights: { configured: patch.b ?? true, model: "meta-models/muse-spark-open-1026", provider: "Baseten" },
       meta_api: { configured: patch.a ?? true, model: "muse-voice-transcribe-1.0 + muse-spark-1.3", provider: "Meta" },
     },
-    limits: { maxBodyBytes: 4_400_000, maxClipSec: 125, perHour: 30, hardCapMs: 20_000 },
+    limits: { maxBodyBytes: 4_400_000, maxClipSec: 125, perHour: 30, hardCapMs: LIMITS.hardCapMs },
   };
   return { state: "ok", data };
 }

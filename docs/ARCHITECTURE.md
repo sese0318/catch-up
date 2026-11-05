@@ -134,7 +134,7 @@ The page reads health once. When it says the kill switch is off, or the route a 
 2. Auto runs the configured routes in `AUTO_POLICY.order`, Route B first. A route without a key is skipped, not counted as a fallback.
 3. Route A runs once, with the same clip, when Route B fails with a code in `AUTO_POLICY.fallbackOn`, when its output does not parse, or when it has no answer token by `AUTO_FALLBACK_MS` (8 s until gate 1 retunes it to the p95 of Route B plus 1 s). The server then emits the `fallback` stage and the card carries `fallbackFrom` and `fallbackCause`.
 4. When every route fails and some model text exists, the server sends an Unformatted card with that raw text in `summary[0]`. Otherwise it sends an `error` event.
-5. The client aborts at 20 s. The server stops providers at 19 s and sends `timeout`.
+5. The client aborts at 30 s. The server stops providers at 29 s and sends `timeout`. The eval runner allows 35 s for the handler and stream to finish.
 
 Parsing happens on the server before the card event. `parseCardText` strips control tokens and code fences, takes the outermost braces, parses, clamps unknown enums to safe values and long strings to their width caps, and applies the teen and tens backstop. Its `ClampContext` holds the card language and the meeting language, so a card with heard poor and no say gets the repeat line in the meeting language, with a gloss in the card language when they differ. Providers resolve with a valid CardBody or reject with a `ProviderError`, whose message never contains model text.
 
@@ -159,7 +159,7 @@ Checks run in this order. Header, the route plan (mock refusal, kill switch, key
 
 ### Press
 
-1. `pressed` with the stall line comes at 0 ms, then sending, stage, still_working at 6 s, and card or error. One press at a time, with a 20 s hard cap. `pressedAt` is the moment the card is about and every redo keeps it. `startedAt` is when this attempt started, and the elapsed counter and the cancel guard count from it.
+1. `pressed` with the stall line comes at 0 ms, then sending, stage, still_working at 6 s, and card or error. One press at a time, with a 30 s hard cap. `pressedAt` is the moment the card is about and every redo keeps it. `startedAt` is when this attempt started, and the elapsed counter and the cancel guard count from it.
 2. Esc or Cancel emits `cancelled` only, never an error event, and the UI shows the `aborted` copy for it. The `aborted` error code is kept for a press that ends without Esc or Cancel, for example `dispose()` mid-press.
 3. A header that fails to encode becomes the `bad_request` error with `sent` false.
 4. Every card carries `meta.sent`, which says whether audio, the earlier transcript or nothing left the device, and whether names and the hint travelled with it.
@@ -183,7 +183,7 @@ Checks run in this order. Header, the route plan (mock refusal, kill switch, key
 
 ## Environment variables
 
-Keys live only in `.env.local` (git-ignored) or Vercel env, are read only on the server, never use `NEXT_PUBLIC_`, and are never logged, printed or committed. `.env.example` lists every variable with its default, and a test keeps it in sync with `ENV_KEYS` and `ENV_DEFAULTS`.
+Keys live only in `.env.local` (git-ignored) or Vercel env, are read only on the server, never use `NEXT_PUBLIC_`, and are never logged, printed or committed. `.env.example` pins `CATCHUP_ROUTE=meta_api` for the Meta-only build. Other example values match the code defaults, and a test keeps the variable list and these choices in sync with `ENV_KEYS` and `ENV_DEFAULTS`.
 
 | Variable | Default | Purpose |
 | - | - | - |
@@ -199,7 +199,7 @@ Keys live only in `.env.local` (git-ignored) or Vercel env, are read only on the
 | `META_CARD_MODEL` | `muse-spark-1.3` | card writer on the transcript, a contributor id is ignored |
 | `META_ASR_MODEL` | `muse-voice-transcribe-1.0` | transcription, a contributor id is ignored |
 | `META_MAX_COMPLETION_TOKENS` | 4000 | output budget with reasoning |
-| `CATCHUP_ROUTE` | `auto` | route used when a press asks for auto |
+| `CATCHUP_ROUTE` | `auto` in code, `meta_api` in the example | route used when a press asks for auto |
 | `LIVE_ENABLED` | 1 | kill switch, 0 stops live calls |
 | `ALLOW_MOCK` | 0 | 1 allows mock in dev and tests, production refuses it |
 | `RATE_LIMIT_PER_HOUR` | 30 | live presses per client per hour, in memory, 0 turns the per-client limits off for a local eval server |
@@ -220,7 +220,7 @@ The UI shows the English copy from `ERROR_COPY_EN`, then one action. Every error
 | `live_off` | 503 | no | Try a sample | `LIVE_ENABLED` is 0 |
 | `not_configured` | 503 | no | Try a sample | no key for the route asked for |
 | `mock_refused` | 403 | no | none | mock asked for in production |
-| `timeout` | 504 | yes | Retry, or Send to the other route under Auto | 20 s hard cap |
+| `timeout` | 504 | yes | Retry, or Send to the other route under Auto | 30 s client cap, 29 s server deadline |
 | `provider_error` | 502 | yes | Retry, or Send to the other route under Auto | model service failed |
 | `server_error` | 500 | yes | Retry | unexpected server failure |
 | `offline` | client only | yes | Retry | the device is offline, nothing sent |
@@ -254,13 +254,13 @@ The UI shows the English copy from `ERROR_COPY_EN`, then one action. Every error
 | Header | 4,096 characters |
 | Names and hint | 60 and 120 width units (CJK counts 2) |
 | Warm-up before a press | 5 s in memory |
-| Hard cap | 20 s from press to card or error |
+| Hard cap | 30 s from press to card or error, server stops providers at 29 s |
 | Snapshot hold | 2 minutes, also for a finished sample |
 | Hourly limit and daily cap | 30 live presses per client per hour, 2 in flight per client, 500 live presses per day, all best effort and in memory, mock exempt |
 
-## Timing budget
+## Timing behavior
 
-Targets until gate 1 measures them with real keys.
+The 30 s cap allows room for slower requests on the two-step Meta route. It is a cancellation limit, not a response-time guarantee. See the README and eval reports for measured latency and the audio source used. `TIMING_BUDGET` retains the original optimization targets for future work, not claims about current performance.
 
 | Step | Target |
 | - | - |
@@ -269,8 +269,8 @@ Targets until gate 1 measures them with real keys.
 | Upload of a 30 s clip (0.96 MB) | under 1 s on a typical uplink |
 | Still working note | at 6 s |
 | Auto switch to Route A | 8 s without an answer token from Route B |
-| Full card | p50 under 5 s, p95 under 8 s |
-| Hard cap | 20 s |
+| Full card | measured in evaluation, depends on the route and clip |
+| Hard cap | 30 s on the client, 29 s on the server |
 
 ## Commands
 

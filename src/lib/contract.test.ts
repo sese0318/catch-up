@@ -197,10 +197,11 @@ describe("server contract", () => {
     expect(example).not.toMatch(/^NEXT_PUBLIC_/m);
   });
 
-  it("keeps .env.example values equal to the code defaults", () => {
+  it("pins the example to Meta API and keeps other values equal to the code defaults", () => {
     for (const [key, value] of Object.entries(ENV_DEFAULTS)) {
       const written = entries.get(key);
-      if (value === null) expect(written, key).toBe("");
+      if (key === "CATCHUP_ROUTE") expect(written, key).toBe("meta_api");
+      else if (value === null) expect(written, key).toBe("");
       else if (typeof value === "boolean") expect(written, key).toBe(value ? "1" : "0");
       else if (typeof value === "number") expect(Number(written), key).toBe(value);
       else expect(written, key).toBe(value);

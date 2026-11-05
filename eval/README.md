@@ -1,6 +1,6 @@
 # Catch Up eval
 
-The eval sends short scripted conversations through the same `/api/card` handler the app uses, then scores each card against labels written from the scripts. It measures how fast a card arrives on each Meta route, how often Asked you is right, and how many names, numbers and dates make it into the facts.
+The eval sends short scripted conversations through the same `/api/card` handler the app uses, then scores each card against labels written from the scripts. The submission setup uses only `meta_api`, which calls Muse Voice Transcribe and then Muse Spark. It measures how fast a card arrives, how often Asked you is right, and how many names, numbers and dates make it into the facts. Baseten comparison is optional and is not a submission claim.
 
 ## What is here
 
@@ -24,17 +24,27 @@ The script speaks every line with the Windows voices (Microsoft Zira, David, Har
 
 For the real eval, consenting voices read the same scripts. Save each recording as `<id>.wav` in 16 kHz mono 16-bit PCM in one folder and pass it with `--audio-dir`.
 
+No consented recordings were available when the Meta-only submission work began on November 4, 2026. Start with a synthetic live API check, label its results as synthetic, and record the real set before presenting real voice accuracy. The 10 eval scripts plus `control-noise-only.wav` are required for the default eval set. Keep private consent records outside the repository. Public samples require separate permission to publish the voice, not just permission to measure it.
+
 ## Run it
 
 ```bash
-npm run eval -- --dry-run                            # checks scripts, audio and headers, sends nothing
-ALLOW_MOCK=1 npm run eval -- --route mock --runs 1   # keyless smoke run, no model is called
-npm run eval                                         # every live route with a key, 3 runs each
-npm run eval -- --route open_weights,meta_api,auto   # pick routes
-npm run eval -- --summary-only                       # rebuild the tables from saved runs
+npm run eval -- --route meta_api --dry-run
+npm run eval -- --route meta_api --runs 1 --clip en-ask-by-name
+npm run eval -- --route meta_api --runs 3 --audio-dir eval/recorded
+npm run eval -- --summary-only
 ```
 
-In PowerShell, set the variable first with `$env:ALLOW_MOCK = "1"`.
+The first command checks the audio and headers without sending a request. The second spends a small amount of Meta credit on one synthetic clip. The third is the real recorded benchmark, so it must wait for consented recordings. Review a one-clip response before running a larger batch. The final command rebuilds the tables from saved runs without calling a model.
+
+On the development Windows machine, the PowerShell `npm.ps1` wrapper dropped the separated argument flags. Use `npm.cmd` for these eval commands, or invoke the runner directly. Keep the equals signs on the option values.
+
+```powershell
+npm.cmd run eval -- --route=meta_api --runs=1 --clip=en-ask-by-name
+node node_modules/tsx/dist/cli.mjs eval/run.ts --route=meta_api --runs=1 --clip=en-ask-by-name
+```
+
+For a keyless development check, set `$env:ALLOW_MOCK = "1"` in PowerShell and run `npm run eval -- --route mock --runs 1`. Remove that variable before live checks. Mock output is never evidence of a model's quality. To compare providers later, use `--route open_weights,meta_api,auto` only when both accounts are ready.
 
 Keys come from `.env.local` and stay on this machine. The runner never prints them. By default it calls the handler in process with the hourly limit off and one client key per pass. With `--base-url` it talks to a local server instead, and only to localhost or 127.0.0.1, so the eval never spends the deployed app's daily cap. Start that server with `RATE_LIMIT_PER_HOUR=0`.
 
@@ -50,13 +60,17 @@ Every press sends one whole clip with the press time from `clips.json`, so relat
 | False alarms | Asked you on clips where the script asked someone else or no one |
 | Name, number and date recall | script names, numbers and dates found in the card's facts, with other spellings and readings counted, and a date counted only once it is resolved to a month and day |
 | Valid JSON first try | cards that parsed after exactly one provider attempt, without a retry or backup route. Older results without attempt telemetry are excluded |
-| Fallback rate | cards that Auto served from the Meta Model API after Muse Spark Open failed |
+| Fallback rate | cards that Auto served from the Meta Model API after Muse Spark Open failed. It is not a useful comparison for the pinned Meta-only run |
 
 A second table checks all four ask states (you, room, mentioned and none), heard, the say line, the say language, the card language, teen and tens numbers marked Check, term recall and Unformatted cards. A third shows every clip's ask on every run.
 
 Times are measured inside the eval process, so they leave out the upload from a phone or laptop.
 
+The initial live check proves that the configured models accepted the request and returned a card. It does not establish performance on natural speech, a deployed network path, phone capture, or screen-reader use. Report the audio source, number of clips, runs, model IDs, failures and execution mode beside any numbers. Do not substitute the planned 3 to 5 second demo timing for a measurement.
+
 ## Results
+
+The first measured Meta-only batch is preserved in [the November 4 synthetic API baseline](results/meta-only-synthetic-2026-11-04.md). It includes the separate initial timeout, all quality metrics and the correctness issues found in manual review. The [33-run follow-up](results/meta-only-followup-2026-11-04.md) used `card-v2` before the later literal-quote guard. Neither report is human voice validation, and the follow-up does not establish a statistically significant improvement or validate the later guard. Keep post-change results separate and name the revision and dataset used.
 
 `eval/results/raw` holds every press with its card, timings and status. It is git-ignored, because consent covers measurement, not publishing. `eval/results/summary.md` holds the scripted eval tables for the README and the video, and `summary.json` the same numbers. The newest dataset selects the comparison, and only matching clips, languages, audio sources, script versions, run counts and execution modes are compared across routes. Mock runs get their own section that says no model was called.
 
@@ -67,8 +81,8 @@ Sample runs with `--set samples --press-time now` write `samples-now-summary.md`
 When a consented public sample clip has a real run, save its card for the times live calls fail, are capped or are off.
 
 ```bash
-npm run eval -- --set samples --route open_weights --press-time now --audio-dir eval/recorded
+npm run eval -- --set samples --route meta_api --press-time now --audio-dir eval/recorded
 npx tsx scripts/save-cached-card.ts --raw eval/results/raw/<file>.json --clip sample-ask-by-name --lang ja
 ```
 
-The script refuses mock runs, synthetic audio, Unformatted cards and clips without written consent. It writes `src/lib/samples/cached-cards.json`, and every saved card names its live route and run date.
+First register each consented recording in `PUBLIC_CLIPS` in `src/lib/samples/catalog.ts`, with its public audio file and actual timing. The script refuses mock runs, synthetic audio, Unformatted cards and clips without written consent. It writes `src/lib/samples/cached-cards.json`, and every saved card names its live route and run date. The recording script and release checklist are in [docs/SUBMISSION.md](../docs/SUBMISSION.md).

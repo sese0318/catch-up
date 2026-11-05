@@ -18,6 +18,7 @@ import type {
 import { SessionController, type ControllerDeps } from "./controller";
 import { createSettingsStore } from "./settings";
 import { makeCard } from "./test-helpers";
+import { LIMITS } from "../protocol";
 
 const SUPPORT: CaptureSupport = {
   secureContext: true,
@@ -169,7 +170,7 @@ const healthJson = {
     open_weights: { configured: true, model: "meta-models/muse-spark-open-1026", provider: "Baseten" },
     meta_api: { configured: true, model: "muse-voice-transcribe-1.0 + muse-spark-1.3", provider: "Meta" },
   },
-  limits: { maxBodyBytes: 4_400_000, maxClipSec: 125, perHour: 30, hardCapMs: 20_000 },
+  limits: { maxBodyBytes: 4_400_000, maxClipSec: 125, perHour: 30, hardCapMs: LIMITS.hardCapMs },
 };
 
 function setup(options: { bridge?: ReturnType<typeof fakeBridge>; brokenEngine?: boolean; support?: Partial<CaptureSupport> } = {}) {

@@ -3,7 +3,7 @@
 // runs the silence gate, builds PressMeta (names through normalizeNames, hint through
 // normalizeHint), POSTs the raw WAV to CARD_ENDPOINT with encodeMetaHeader, reads the stream with
 // readEventStream, and emits stage, still_working (6 s), card (built with toCard, meta.sent filled
-// in) or error. One press at a time, 20 s hard cap. Esc or Cancel emits cancelled only, and
+// in) or error. One press at a time, 30 s hard cap. Esc or Cancel emits cancelled only, and
 // aborted is kept for dispose() mid-press. An encode failure is error bad_request with sent false.
 // The snapshot is held 2 minutes for further_back and language, then released. For a sample
 // source, live failures fall back to the clip's saved card from getCachedCard, with a new id, this

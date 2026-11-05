@@ -10,7 +10,7 @@ export const MOCK_MODEL = "mock";
 
 /**
  * Milliseconds after the request arrives. ok and badjson follow ux-spec 7 (stages at 0.3 s and 1.2 s,
- * the card at 2.8 s). slow passes the 6 s Still working note and lands well inside the 20 s cap.
+ * the card at 2.8 s). slow passes the 6 s Still working note and lands well inside the 30 s cap.
  * error fails at 1.2 s, and badjson ends in an Unformatted card built from truncated card JSON.
  */
 export const MOCK_TIMELINE: Readonly<Record<MockMode, { receivedMs: number; writingMs: number | null; endMs: number }>> = {

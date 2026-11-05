@@ -7,7 +7,7 @@ vi.mock("../card/fixtures", async () => (await import("../server/test-support"))
 import { fakeProvider, makeWav, okResult, testEnv, testMeta } from "../server/test-support";
 import { createMockProvider, createProviders, isMockProvider, planRoutes, MOCK_MODEL } from "./index";
 import { MOCK_TIMELINE } from "./mock";
-import { isProviderError, type CardProvider, type ProviderId, type ProviderRunInput, type ServerEnv } from "./types";
+import { AUTO_POLICY, isProviderError, type CardProvider, type ProviderId, type ProviderRunInput, type ServerEnv } from "./types";
 
 function providers(configured: Partial<Record<ProviderId, boolean>>, env: ServerEnv): Record<ProviderId, CardProvider> {
   const make = (id: ProviderId) => fakeProvider(id, async () => okResult(id), { configured: configured[id] ?? true });
@@ -99,6 +99,6 @@ describe("mock provider", () => {
     expect(MOCK_TIMELINE.ok).toEqual({ receivedMs: 300, writingMs: 1_200, endMs: 2_800 });
     const mock = createMockProvider(testEnv({ allowMock: true }));
     expect(mock.receivedDelayMs(testMeta({ route: "mock" }))).toBe(300);
-    for (const timeline of Object.values(MOCK_TIMELINE)) expect(timeline.endMs).toBeLessThan(19_000);
+    for (const timeline of Object.values(MOCK_TIMELINE)) expect(timeline.endMs).toBeLessThan(AUTO_POLICY.serverDeadlineMs);
   });
 });

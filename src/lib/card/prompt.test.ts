@@ -26,7 +26,7 @@ describe("systemPrompt", () => {
 
   it("is one fixed string for every press", () => {
     expect(systemPrompt()).toBe(prompt);
-    expect(PROMPT_VERSION).toBe("card-v1");
+    expect(PROMPT_VERSION).toBe("card-v2");
     expect(prompt).not.toContain("Seika");
     expect(prompt).not.toContain("2026-11-02");
   });

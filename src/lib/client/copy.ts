@@ -66,7 +66,7 @@ export const UI = {
   appName: "Catch Up",
   promise: "Catch Up keeps the last 2 minutes of sound in memory, and nothing leaves your device until you press.",
   tagline: "Missed something? Press once.",
-  builtWith: "Built with Muse Spark Open",
+  builtWith: "Built with Meta Model API",
   footerAudio: "Audio stays in this tab's memory and is sent only when you press.",
   footerAudioApp: "Audio stays in this app's memory and is sent only when you press.",
   aiCanBeWrong: "Cards are written by AI and can be wrong.",
@@ -221,7 +221,7 @@ export const UI = {
   setupTitle: "Missed something? Press once.",
   setupLines: [
     "Holds the last 2 minutes in memory and saves nothing.",
-    "Sends only the slice you choose, only when you press, to Meta's Muse Spark Open on Baseten (Meta Model API as a backup).",
+    "Sends only the slice you choose, only when you press. Meta Model API is the default route.",
     "Gives you a short card in your language and a line you can say to check.",
   ],
   meetingLang: "People around you usually speak",
@@ -237,8 +237,8 @@ export const UI = {
   routeAuto: "Auto",
   routeOpen: "Open weights only",
   routeMeta: "Meta API only",
-  routeAutoHelp: "Muse Spark Open on Baseten first, then Meta Model API once if that fails.",
-  routeOpenHelp: "Muse Spark Open on Baseten only. The backup route stays off.",
+  routeAutoHelp: "Uses this server's default route.",
+  routeOpenHelp: "Muse Spark Open on Baseten only, when set up. No other route is used.",
   routeMetaHelp: "Muse Voice Transcribe, then Muse Spark, on Meta Model API.",
   routeMissing: "Not set up on this server",
   showTiming: "Show timing details",
@@ -278,7 +278,7 @@ export const PRIVACY = {
       title: "What leaves, and when",
       items: [
         "Only when you press, and only the slice the memory bar lights up, 30 seconds unless you pick more.",
-        "With it go the card language, the language people around you speak, the source you picked, your local time and time zone, and a random id for this tab (the main route passes it to Baseten so your presses reach the same server). Your name forms and the session hint go too, if you set them.",
+        "With it go the card language, the language people around you speak, the source you picked, your local time and time zone, and a random id for this tab (only the optional Baseten route passes it to its provider so your presses reach the same server). Your name forms and the session hint go too, if you set them.",
         "If no one spoke in that slice, nothing is sent unless you choose Send anyway.",
         "Every card ends with a receipt that says what was sent, to which route and model, and when.",
       ],
@@ -286,8 +286,8 @@ export const PRIVACY = {
     {
       title: "Who hears it",
       items: [
-        "Main route. Muse Spark Open on Baseten (meta-models/muse-spark-open-1026) hears the clip directly. Baseten documents zero data retention for synchronous requests like these.",
-        "Backup route. Muse Voice Transcribe and Muse Spark on Meta Model API (muse-voice-transcribe-1.0 and muse-spark-1.3). Meta can retain content under its terms. Set Route to Open weights only in Settings to turn the backup off.",
+        "Default route. Muse Voice Transcribe (muse-voice-transcribe-1.0) transcribes the clip, then Muse Spark (muse-spark-1.3) writes the card on Meta Model API. Meta can retain content under its terms.",
+        "Optional route, when set up. Muse Spark Open on Baseten (meta-models/muse-spark-open-1026) hears the clip directly. Baseten documents zero data retention for synchronous requests like these. Choose Open weights only in Settings to use this route without Meta Model API.",
       ],
     },
     {
@@ -316,12 +316,12 @@ export const PRIVACY = {
     },
   ],
   links: [
-    { label: "Baseten security and data retention", href: "https://docs.baseten.co/observability/security" },
     { label: "Meta Model API terms of service", href: "https://dev.meta.ai/legal/terms-of-service" },
-    { label: "Muse Model License", href: "https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B/blob/main/LICENSE.md" },
+    { label: "Baseten security and data retention, optional route", href: "https://docs.baseten.co/observability/security" },
+    { label: "Muse Model License, optional route", href: "https://huggingface.co/meta-models/Muse-Spark-Open-816B-A42B/blob/main/LICENSE.md" },
   ],
   linksTitle: "Data terms",
-  builtWith: "Built with Muse Spark Open",
+  builtWith: "Built with Meta Model API",
 } as const;
 
 export function switchToLabel(title: string): string {

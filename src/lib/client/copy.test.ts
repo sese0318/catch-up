@@ -105,8 +105,8 @@ describe("English chrome copy", () => {
   });
 
   it("credits the model and states the limits", () => {
-    expect(UI.builtWith).toBe("Built with Muse Spark Open");
-    expect(PRIVACY.builtWith).toBe("Built with Muse Spark Open");
+    expect(UI.builtWith).toBe("Built with Meta Model API");
+    expect(PRIVACY.builtWith).toBe("Built with Meta Model API");
     expect(UI.adultsOnly).toMatch(/18 and over/);
     expect(UI.aiCanBeWrong).toMatch(/can be wrong/);
     expect(UI.consentLabel).toBe("People here know I'm using Catch Up");
